@@ -1,0 +1,27 @@
+{
+  "name": "@cyb3rb1ade/plur1bus-host-addons",
+  "version": "0.1.0",
+  "description": "Host add-ons for PLUR1BUS: one-line installers (OpenClaw, Hermes), bootstraps, signed plugin feed and their release tooling.",
+  "type": "module",
+  "private": true,
+  "license": "MIT",
+  "scripts": {
+    "lint": "find scripts tests -name '*.mjs' -exec node --check {} + && find tests -name '*.js' -exec node --check {} +",
+    "test": "node --test --test-concurrency=1 tests/*.test.js",
+    "build:installer": "node scripts/dist/build-installer.mjs",
+    "build:bootstraps": "node scripts/dist/render-bootstraps.mjs"
+  },
+  "engines": {
+    "node": ">=24.16.0 <25 || >=26.1.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Cyb3rb1ade/PLUR1BUS-Host-Addons.git"
+  },
+  "devDependencies": {
+    "@lancedb/lancedb": "^0.26.2",
+    "apache-arrow": "18.1.0",
+    "esbuild": "0.28.2",
+    "yaml": "2.9.0"
+  }
+}

@@ -1,0 +1,12 @@
+node_modules/
+.env
+.env.*
+!.env.example
+*.bak
+*.bak.*
+*.tgz
+.DS_Store
+*.log
+.worktrees/
+# Built installer bundle (npm run build:installer); a release artefact, never committed.
+dist-installer/
