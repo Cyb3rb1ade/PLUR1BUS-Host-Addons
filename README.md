@@ -11,6 +11,29 @@ This repository has its own version line (`0.1.0`, see `package.json` and `CHANG
 The versions the installer *installs* are plugin versions (and harness sidecar versions); they come from the signed feed
 (`plur1bus.plugin-feed/1`), not from this repository's version.
 
+## Install (what the add-ons ship)
+
+Linux and macOS:
+
+```bash
+curl -fsSL https://plur1bus.app/install-plugin.sh | sh
+```
+
+Windows PowerShell (5.1 or 7):
+
+```powershell
+$s = (Invoke-WebRequest -UseBasicParsing https://plur1bus.app/install-plugin.ps1).Content; if ($s -is [byte[]]) { $s = [Text.Encoding]::UTF8.GetString($s) }; & ([scriptblock]::Create($s.TrimStart([char]0xFEFF)))
+```
+
+Hermes host mode (installs the PLUR1BUS memory provider into a Hermes agent, with a local sidecar):
+
+```bash
+curl -fsSL https://plur1bus.app/install-plugin.sh | sh -s -- --host hermes
+```
+
+On Windows append `-Host hermes` to the PowerShell one-liner. Every flag, exit code and the feed are in
+[docs/distribution.md](docs/distribution.md).
+
 ## Relation to the other repositories
 
 | Repository | Role |
