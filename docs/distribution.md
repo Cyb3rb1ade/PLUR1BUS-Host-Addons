@@ -291,7 +291,7 @@ as the harness `release.json` (harness `docs/manual-release.md`). CI never holds
 a secret key; the release workflow produces the unsigned feed. Promoting
 `beta` to `stable` re-signs identical bytes.
 
-**Where the keys come from.** The channel public keys are plugin repository
+**Where the keys come from.** The channel public keys are this repository's
 variables, equal to the harness ones, rendered into both bootstraps and into
 the installer bundle at release, before the feed hashes the bundle. An
 installer build with an unrendered placeholder, or a dry-run `TEST ONLY`
@@ -358,21 +358,11 @@ install could not be verified.
 notes and the plan and exits 0 without `--yes` and without a terminal; it
 changes nothing.
 
-**Snapshots** live at `<stateDir>/memory/.snapshots/plur1bus-<UTC
-yyyymmddTHHMMSSZ>-<label>/` with a SHA-256 manifest (`snapshot.json`, schema
-`plur1bus.snapshot/1`). They hold the resolved store (the configured
-`baseDbPath`, else `~/.openclaw/memory/lancedb-namespaced` regardless of
-`OPENCLAW_STATE_DIR` or profile), `memory/_archive`, `memory/run-state.json`
-and `memory/merge-proposals.jsonl` when present. Not the Obsidian vault, never
-config or credentials. Files are copied, never hard-linked (OpenClaw rejects
-hard-linked plugin files). A LanceDB table that a running Gateway compacts
-during the copy is copied again, three tries, then `source-busy`; free space of
-1.1 times the copy is required (`insufficient-disk`). A store path that is a symlink resolving outside its own parent directory is refused (`unsafe-path`) rather than followed; move the store or point `baseDbPath` at the real location. The **newest five** Node
-snapshots are kept and older ones pruned; the bash tool's `*.tar.gz` snapshots
-are listed as legacy and never pruned or restored by the installer.
-A manual tool exists in a source checkout: `node scripts/snapshot-store.mjs
-<create|list|verify|restore|prune> --state-dir <d> [--base-db-path <p>]
-[--label <l>] [--id <id>] [--json]`.
+**Snapshots.** The installer takes a store snapshot (`pre-<target>`) before a
+change and keeps the newest five; the bash tool's `*.tar.gz` snapshots are
+listed as legacy and never pruned or restored by the installer. The snapshot
+format and the manual snapshot tool belong to the plugin; see
+[`docs/selftest.md`](https://github.com/Cyb3rb1ade/openclaw-plur1bus-memory/blob/main/docs/selftest.md) for the plugin-side description.
 
 **The store is never restored under a running Gateway.** A restore is only
 needed when the store differs from the snapshot (above); before such a restore
@@ -429,7 +419,7 @@ remove it by hand.
 
 ## Adopting an rsync deploy (legacy)
 
-A plugin deployed by `install-memory-system.sh` (rsync into
+A plugin deployed by the legacy `install-memory-system.sh` (rsync into
 `<state>/extensions/memory-lancedb-namespaced`) is not tracked by OpenClaw.
 `install` and `--update` refuse it with exit 2 `legacy-deploy`; adoption is
 explicit:
@@ -491,32 +481,11 @@ The recommended local model, Jina v5 Text Nano, is licensed CC BY-NC 4.0
 
 ## The selftest
 
-`openclaw plur1bus selftest [--json] [--download-models] [--remote] [--keep]
-[--state-dir <dir>]` runs in the CLI process without a Gateway, and the
-installer runs it as its verify step. It:
-
-1. imports each native addon (`@lancedb/lancedb`, `onnxruntime-node`, `sharp`);
-2. refuses a configured store inside a PLUR1BUS harness home;
-3. checks the embedding model in the plugin's cache (downloads only with
-   `--download-models`);
-4. opens a **throw-away** store `<stateDir>/plur1bus-selftest-<random>`, embeds
-   and captures two probe texts, recalls both, reranks when a local reranker
-   with artefacts is configured, closes, and deletes the store unless `--keep`.
-
-A remote embedding provider is not called unless `--remote` is given (that step
-reports `skipped: remote-provider`). A missing model without
-`--download-models` skips embed, capture and recall with the warning
-`model-missing` and leaves the result `ok`.
-
-`--json` prints one `plur1bus.selftest/1` document: `ok`, `addons`, `model`,
-`steps`, `warnings`, `errors`. **Reading a failed native addon:** an entry
-`{ "name": "onnxruntime-node", "ok": false, "package": "...", "error": "..." }`
-and the error line `addon <name> failed to load (<package>)` mean the prebuilt
-binary for this platform is missing or does not load. Check that `package` is
-installed under the plugin directory (a failed or `--ignore-scripts`-trimmed
-dependency install), that the target is one of the five supported ones, and
-that OpenClaw's Node matches the range; then reinstall the plugin. A failing
-selftest fails the install verify and triggers the rollback.
+`openclaw plur1bus selftest [--json]` is a plugin command; the installer runs it
+as its verify step, and a failing selftest fails the verify and triggers the
+rollback. What it checks, its flags and how to read a failed native addon are
+documented in the plugin repository:
+[`docs/selftest.md`](https://github.com/Cyb3rb1ade/openclaw-plur1bus-memory/blob/main/docs/selftest.md).
 
 ## Privacy: what is read, written and snapshotted
 

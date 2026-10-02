@@ -69,7 +69,14 @@ jobs:
           persist-credentials: false
       - name: Install the plugin's runtime dependencies
         working-directory: plugin
-        run: npm ci --omit=dev --omit=optional --ignore-scripts --no-audit --no-fund
+        run: npm ci --omit=dev --ignore-scripts --no-audit --no-fund
+      # vendor/plur1bus-memory/ holds copies of plugin files; every listed file must equal the pinned plugin's byte for byte.
+      # Ubuntu only: a Windows checkout may rewrite line endings, which would be a false difference.
+      - name: Vendored files match the pinned plugin
+        if: startsWith(matrix.os, 'ubuntu')
+        shell: bash
+        run: |
+          node -e 'const fs=require("fs"),path=require("path"); const d="vendor/plur1bus-memory"; const files=JSON.parse(fs.readFileSync(d+"/SOURCES.json","utf8")).files; if(!Array.isArray(files)||files.length===0) throw new Error("SOURCES.json lists no files"); let bad=0; for(const f of files){ let a,b; try{a=fs.readFileSync(path.join(d,f.path)); b=fs.readFileSync(path.join("plugin",f.path));}catch(e){console.error("MISSING "+f.path+": "+e.message); bad++; continue;} if(!a.equals(b)){console.error("DIFFERS "+f.path); bad++;} else console.log("ok "+f.path);} if(bad) process.exit(1)'
       - name: Run tests
         run: npm test
         env:

@@ -4,6 +4,8 @@ The plugin's own release steps (tarball, npm, ClawHub publish) are in the plugin
 
 ## Distribution (HM1)
 
+> **First add-on release.** It needs a plugin release that contains `selftest`, the store snapshot and `snapshotsDir`. The published v7.18.4 lacks them, and v7.18.5 to v7.18.7 belong to the plugin's health-watch line. So the plugin owner first cuts a release at a free version from plugin `main` after the split; that release becomes `plugin-version`. Move `plugin-pin.json` to that release commit at the same time.
+
 Per release, in order. Details of the installer, the feed and its signature:
 [`distribution.md`](distribution.md). Nothing here is done by CI on its own:
 the feed is signed offline by the owner and published by hand.
