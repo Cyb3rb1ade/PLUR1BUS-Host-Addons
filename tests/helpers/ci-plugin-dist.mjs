@@ -36,7 +36,7 @@ import { parseArgs } from "node:util";
 
 import { createOpenclawCli, defaultRun, PLUGIN_ID } from "../../scripts/dist/installer/openclaw-cli.mjs";
 import { nodeFromLauncher, whichOnPath } from "../../scripts/dist/installer/detect.mjs";
-import { listSnapshots } from "../../lib/snapshot/store-snapshot.js";
+import { listSnapshots } from "../../vendor/plur1bus-memory/lib/snapshot/store-snapshot.js";
 import { assertDisposable } from "./assert-disposable.mjs";
 
 const REPO = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..");

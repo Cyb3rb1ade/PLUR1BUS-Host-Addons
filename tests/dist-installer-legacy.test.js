@@ -11,7 +11,7 @@ import { dirname, join } from "node:path";
 import { detectLegacyDeploy } from "../scripts/dist/installer/legacy.mjs";
 import { EXIT } from "../scripts/dist/installer/report.mjs";
 import { readState } from "../scripts/dist/installer/state.mjs";
-import { listSnapshots } from "../lib/snapshot/store-snapshot.js";
+import { listSnapshots } from "../vendor/plur1bus-memory/lib/snapshot/store-snapshot.js";
 import { createInstallerSandbox, makeTestFeed, mutatingCalls, runSandboxInstaller, treeDigest, walkTree } from "./helpers/installer-sandbox.js";
 
 const ID = "memory-lancedb-namespaced";

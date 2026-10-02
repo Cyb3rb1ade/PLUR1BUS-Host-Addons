@@ -13,7 +13,7 @@ import * as lancedb from "@lancedb/lancedb";
 
 import { EXIT } from "../scripts/dist/installer/report.mjs";
 import { readState, writeState } from "../scripts/dist/installer/state.mjs";
-import { listSnapshots } from "../lib/snapshot/store-snapshot.js";
+import { listSnapshots } from "../vendor/plur1bus-memory/lib/snapshot/store-snapshot.js";
 import { createInstallerSandbox, makeTestFeed, mutatingCalls, runSandboxInstaller, sink, treeDigest, walkTree } from "./helpers/installer-sandbox.js";
 import { makeTempDir } from "./helpers/temp-dir.js";
 

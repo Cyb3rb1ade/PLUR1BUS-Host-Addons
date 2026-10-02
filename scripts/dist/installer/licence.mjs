@@ -14,7 +14,7 @@
  */
 
 import { userInfo } from "node:os";
-import { E5_EMBEDDING_PROFILE, JINA_V5_NANO_EMBEDDING_PROFILE } from "../../../lib/providers/local-model-artifacts.js";
+import { E5_EMBEDDING_PROFILE, JINA_V5_NANO_EMBEDDING_PROFILE } from "../../../vendor/plur1bus-memory/lib/providers/local-model-artifacts.js";
 
 export const E5_PROFILE_ID = "e5-multilingual-384";
 export const JINA_V5_PROFILE_ID = "jina-v5-nano-768";

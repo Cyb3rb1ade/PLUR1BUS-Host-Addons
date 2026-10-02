@@ -1,0 +1,137 @@
+name: CI
+
+permissions:
+  contents: read
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  lint:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+      - name: Use Node.js 24.21.0
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '24.21.0'
+          cache: 'npm'
+      - name: Install dependencies
+        run: npm ci
+      - name: Run lint
+        run: npm run lint
+
+  # The full suite on the OSes the installers ship to. The Windows legs run the .ps1 bootstrap tests under Windows
+  # PowerShell 5.1 (several seconds per cold powershell.exe start-up); Python >= 3.11 is needed by
+  # tests/dist-hermes-lock-interop.test.js, which must not skip silently here.
+  test:
+    name: test (${{ matrix.os }}, node 24.21.0)
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: ${{ startsWith(matrix.os, 'windows') && 60 || 45 }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, macos-15, windows-2025]
+    steps:
+      - name: Enable git long paths
+        if: runner.os == 'Windows'
+        run: git config --global core.longpaths true
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+      - name: Use Node.js 24.21.0
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '24.21.0'
+          cache: 'npm'
+      - name: Use Python 3.13
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.13'
+      - name: Install dependencies
+        run: npm ci
+      # Two tests drive the plugin's real MemoryDB (tests/helpers/plugin-checkout.js): a checkout of the commit in
+      # plugin-pin.json with only its runtime dependencies (@lancedb/lancedb), no lifecycle scripts.
+      - name: Read the plugin pin
+        id: pin
+        shell: bash
+        run: |
+          node -e 'const p=JSON.parse(require("fs").readFileSync("plugin-pin.json","utf8")); if(p.repo!=="Cyb3rb1ade/openclaw-plur1bus-memory") throw new Error("unexpected plugin repo "+p.repo); if(!/^[0-9a-f]{40}$/.test(p.commit)) throw new Error("plugin-pin.json commit is not a full SHA"); console.log("commit="+p.commit)' >> "$GITHUB_OUTPUT"
+      - name: Check out the plugin at the pinned commit
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          repository: Cyb3rb1ade/openclaw-plur1bus-memory
+          ref: ${{ steps.pin.outputs.commit }}
+          path: plugin
+          persist-credentials: false
+          sparse-checkout: |
+            /*
+            !/docs/
+          sparse-checkout-cone-mode: false
+      - name: Install the plugin's runtime dependencies
+        working-directory: plugin
+        run: npm ci --omit=dev --ignore-scripts --no-audit --no-fund
+      # vendor/plur1bus-memory/ holds copies of plugin files; every listed file must equal the pinned plugin's byte for byte.
+      # Ubuntu only: a Windows checkout may rewrite line endings, which would be a false difference.
+      - name: Vendored files match the pinned plugin
+        if: startsWith(matrix.os, 'ubuntu')
+        shell: bash
+        run: |
+          node -e 'const fs=require("fs"),path=require("path"); const d="vendor/plur1bus-memory"; const files=JSON.parse(fs.readFileSync(d+"/SOURCES.json","utf8")).files; if(!Array.isArray(files)||files.length===0) throw new Error("SOURCES.json lists no files"); let bad=0; for(const f of files){ let a,b; try{a=fs.readFileSync(path.join(d,f.path)); b=fs.readFileSync(path.join("plugin",f.path));}catch(e){console.error("MISSING "+f.path+": "+e.message); bad++; continue;} if(!a.equals(b)){console.error("DIFFERS "+f.path); bad++;} else console.log("ok "+f.path);} if(bad) process.exit(1)'
+      - name: Run tests
+        run: npm test
+        env:
+          # tests/dist-hermes-lock-interop.test.js: Node and Python on one registry lock
+          PLUR1BUS_REQUIRE_LOCK_INTEROP: '1'
+          # tests/helpers/plugin-checkout.js: fail instead of skipping when the plugin checkout is unusable
+          PLUR1BUS_PLUGIN_DIR: ${{ github.workspace }}/plugin
+          PLUR1BUS_REQUIRE_PLUGIN_DIR: '1'
+
+  # The plugin repo's engine-win review item 8: the .ps1 bootstrap's wsl:<distro> path pipes the verified bootstrap.sh into
+  # `wsl.exe ... sh -s`. Under Windows PowerShell 5.1 (.NET Framework) a UTF-8 console input encoding used to put
+  # a BOM (EF BB BF) in front of it. This blocking byte check runs that path under powershell.exe (and pwsh) against
+  # the wsl.exe shim and asserts the child's stdin is the feed's sh byte for byte, with no BOM.
+  # The test runs the .ps1 three times per shell; each powershell.exe run may take up to 360 s (psRunTimeoutMs in the
+  # test: a cold first run on a fresh VM passed the old 120 s limit, tc4), so 15 minutes no longer bound the job.
+  bootstrap-stdin-bytes:
+    runs-on: windows-2025
+    timeout-minutes: 30
+    steps:
+      - name: Enable git long paths
+        if: runner.os == 'Windows'
+        run: git config --global core.longpaths true
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+      - name: Use Node.js 24.21.0
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '24.21.0'
+          cache: 'npm'
+      - name: Install dependencies
+        run: npm ci --ignore-scripts
+      - name: Windows PowerShell 5.1 is present
+        shell: pwsh
+        run: |
+          $v = & "$env:SystemRoot\System32\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -Command '$PSVersionTable.PSVersion.Major'
+          if ("$v".Trim() -ne '5') { throw "expected Windows PowerShell 5.x, got '$v'" }
+      # --test-name-pattern reports filtered-out tests as skipped and exits 0, so a renamed test would leave this
+      # green without any byte check: the TAP output must show the byte check passing (not skipped) at least once.
+      - name: Piped sh reaches wsl.exe without a BOM
+        shell: pwsh
+        env:
+          PLUR1BUS_REQUIRE_PS51: '1'
+        run: |
+          $out = node --test --test-reporter=tap '--test-name-pattern=wsl:<d> pipes the verified sh' tests/dist-bootstrap-ps1.test.js 2>&1 | Out-String
+          $code = $LASTEXITCODE
+          Write-Output $out
+          if ($code -ne 0) { exit $code }
+          $ran = @([regex]::Matches($out, '(?m)^\s*ok \d+ - wsl:<d> pipes the verified sh(?![^\r\n]*# SKIP)')).Count
+          $pass = [regex]::Match($out, '(?m)^# pass (\d+)').Groups[1].Value
+          if ($ran -lt 1 -or [int]$pass -lt 1) { throw "the byte check did not run (matching ok lines: $ran, # pass: $pass)" }

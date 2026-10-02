@@ -21,7 +21,7 @@ import { existsSync, readdirSync, rmSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, dirname, join, posix, win32 } from "node:path";
 
-import { listSnapshots } from "../../../lib/snapshot/store-snapshot.js";
+import { listSnapshots } from "../../../vendor/plur1bus-memory/lib/snapshot/store-snapshot.js";
 import { legacyDirOf } from "./legacy.mjs";
 import { PLUGIN_ID, failureSummary } from "./openclaw-cli.mjs";
 import { EXIT, Stop } from "./report.mjs";

@@ -1,0 +1,22 @@
+{
+  "pluginRepo": "https://github.com/Cyb3rb1ade/openclaw-plur1bus-memory",
+  "pluginCommit": "09a70e8ac164b04a64275197a255c2dc3b0e5e07",
+  "files": [
+    {
+      "path": "lib/providers/local-model-artifacts.js",
+      "sha256": "99660f8a41d91044288404740aef5d9bed1a726a5dfddc8b9ce2151a0e743629"
+    },
+    {
+      "path": "lib/safe-logging.js",
+      "sha256": "641bfe5ce63164a03c7a0517efc8f36052514323a964feb9ccc5e4b92f4d107a"
+    },
+    {
+      "path": "lib/snapshot/store-snapshot.js",
+      "sha256": "faf39adf02e5408a2f27f7822e4efa8e68287856bac91473b704f99f34cdb0ab"
+    },
+    {
+      "path": "lib/sql-safety.js",
+      "sha256": "8a7cbc872fb14ba844eda6233219aa49b9f34634c2358b109e6d3aea92f1264a"
+    }
+  ]
+}

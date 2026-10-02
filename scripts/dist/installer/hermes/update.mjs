@@ -25,7 +25,7 @@ import { chmodSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSy
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { compareStoreWithSnapshot, createSnapshot, restoreSnapshot, SnapshotError } from "../../../../lib/snapshot/store-snapshot.js";
+import { compareStoreWithSnapshot, createSnapshot, restoreSnapshot, SnapshotError } from "../../../../vendor/plur1bus-memory/lib/snapshot/store-snapshot.js";
 import { compareVersions } from "../../build-plugin-feed.mjs";
 import { resolveTarget } from "../compat.mjs";
 import { writeFileAtomic } from "../fsutil.mjs";

@@ -21,6 +21,7 @@ import { bootstrapEnv, isUpToDate, lastJson } from "./helpers/ci-hermes-dist.mjs
 import { comparePins, parseShasums } from "./helpers/check-node-pins.mjs";
 import { validateFeed } from "../scripts/dist/build-plugin-feed.mjs";
 import { verifyMinisign } from "../scripts/dist/minisign.mjs";
+import { pluginCheckout } from "./helpers/plugin-checkout.js";
 import { makeTempDir } from "./helpers/temp-dir.js";
 import { createInstallerSandbox } from "./helpers/installer-sandbox.js";
 import { buildInstaller } from "../scripts/dist/build-installer.mjs";
@@ -33,6 +34,8 @@ function nodeMeetsEngines() {
 }
 
 const REPO = join(dirname(fileURLToPath(import.meta.url)), "..");
+// The plugin is not in this repository: its real MemoryDB comes from a checkout (see helpers/plugin-checkout.js).
+const PLUGIN = pluginCheckout();
 const HELPERS = join(REPO, "tests", "helpers");
 const WORKFLOW = join(REPO, ".github", "workflows", "plugin-dist.yml");
 
@@ -136,15 +139,15 @@ describe("plugin-dist CI helpers", () => {
     assert.equal(existsSync(outside), false);
   });
 
-  it("seed-store writes synthetic memories through the plugin's own MemoryDB and store-digest counts them", async () => {
+  it("seed-store writes synthetic memories through the plugin's own MemoryDB and store-digest counts them", { skip: PLUGIN.skip }, async () => {
     const stateDir = makeTempDir("seed-real-");
     const baseDbPath = join(stateDir, "memory", "lancedb-namespaced");
-    const seeded = await seedStore({ stateDir, baseDbPath, pluginDir: REPO, count: 12 });
+    const seeded = await seedStore({ stateDir, baseDbPath, pluginDir: PLUGIN.dir, count: 12 });
     assert.equal(seeded.rows, 12);
-    const d = await storeDigest({ baseDbPath, pluginDir: REPO });
+    const d = await storeDigest({ baseDbPath, pluginDir: PLUGIN.dir });
     assert.equal(d.rows, 12);
     assert.equal(d.sha256, digestIds(Array.from({ length: 12 }, (_, i) => `ci-seed/ci-seed-${String(i).padStart(3, "0")}`)).sha256);
-    await assert.rejects(seedStore({ stateDir, baseDbPath, pluginDir: REPO, count: 1 }), /already has/);
+    await assert.rejects(seedStore({ stateDir, baseDbPath, pluginDir: PLUGIN.dir, count: 1 }), /already has/);
   });
 
   it("sign-feed-for-ci builds and signs a file:// feed with both releases, newest first", async () => {
@@ -173,14 +176,14 @@ describe("plugin-dist CI helpers", () => {
     assert.match(lines, /^PLUR1BUS_PLUGIN_PUBKEY=RW[A-Za-z0-9+/=]+$/m);
     assert.match(lines, /^PLUR1BUS_PLUGIN_FEED=file:\/\/.+stable\.json$/m);
   });
-  it("local dry run: the installer leg (install-plugin.sh, signed file:// feed, bundle) against the sandbox shims", { skip: (process.platform === "win32" && "POSIX sh bootstrap and a symlinked plugin dir") || (!nodeMeetsEngines() && "the bootstrap refuses a Node outside package.json engines (>=24.16 <25 || >=26.1), so this leg needs a supported Node") }, async () => {
+  it("local dry run: the installer leg (install-plugin.sh, signed file:// feed, bundle) against the sandbox shims", { skip: (process.platform === "win32" && "POSIX sh bootstrap and a symlinked plugin dir") || PLUGIN.skip || (!nodeMeetsEngines() && "the bootstrap refuses a Node outside package.json engines (>=24.16 <25 || >=26.1), so this leg needs a supported Node") }, async () => {
     const dir = makeTempDir("dist-dry-run-");
     const a = await packArtefact(dir, { real: true });
     const sb = createInstallerSandbox({ scenario: { recordNpmIntegrityByVersion: a.integrity } });
-    // the shim's install record points here (fixture inspect-installed.json); a real MemoryDB lives in this repo
+    // the shim's install record points here (fixture inspect-installed.json); a real MemoryDB lives in the plugin checkout
     const installPath = join(sb.stateDir, "npm", "projects", "cyb3rb1ade-plur1bus-memory-1ff39c963c", "node_modules", "@cyb3rb1ade", "plur1bus-memory");
     mkdirSync(dirname(installPath), { recursive: true });
-    symlinkSync(REPO, installPath, "dir");
+    symlinkSync(PLUGIN.dir, installPath, "dir");
     const feedDir = join(dir, "feed");
     await signFeedForCi({ artefacts: dir, outDir: feedDir });
     const summaryFile = join(dir, "summary.md");
@@ -237,15 +240,41 @@ describe("plugin-dist workflow", () => {
     for (const line of text.split("\n").filter((l) => /^\s*-?\s*uses:/.test(l))) assert.match(line, /@[0-9a-f]{40} # v\d/, `pinned with a version comment: ${line.trim()}`);
   });
 
+  it("plugin-dist.yml gets the plugin from the pin (checkout + npm ci + npm pack) or from a release tarball, and the pin sits in plugin-pin.json only", () => {
+    const pin = JSON.parse(readFileSync(join(REPO, "plugin-pin.json"), "utf8"));
+    assert.deepEqual(Object.keys(pin).sort(), ["commit", "repo"]);
+    assert.equal(pin.repo, "Cyb3rb1ade/openclaw-plur1bus-memory");
+    assert.match(pin.commit, /^[0-9a-f]{40}$/);
+    const text = readFileSync(WORKFLOW, "utf8");
+    assert.ok(!text.includes(pin.commit), "the commit is read from plugin-pin.json, not repeated in the workflow");
+    const steps = wf.jobs.pack.steps;
+    const checkout = steps.find((s) => String(s.uses).startsWith("actions/checkout@") && s.with?.repository);
+    assert.ok(checkout, "a checkout of the plugin repository");
+    assert.equal(checkout.with.repository, pin.repo);
+    assert.equal(checkout.with.path, "plugin");
+    assert.equal(checkout.with.ref, "${{ steps.pin.outputs.commit }}");
+    assert.equal(checkout.with["persist-credentials"], false);
+    assert.equal(checkout.if, "inputs.plugin-version == ''");
+    const read = steps.find((s) => s.id === "pin").run;
+    assert.match(read, /plugin-pin\.json/);
+    const obtain = steps.find((s) => s.id === "tgz").run;
+    assert.match(obtain, /cd plugin\n\s+npm ci --ignore-scripts[^\n]*\n\s+npm pack --json/);
+    assert.match(obtain, /gh release download "v\$PLUGIN_VERSION" --repo "\$PLUGIN_REPO"/);
+    assert.match(obtain, /sha256sum -c tgz\.sha256/);
+    assert.ok(!/GITHUB_REPOSITORY/.test(text), "no step reads a release of this repository as the plugin");
+  });
+
   it("plugin-dist.yml has the triggers, permissions and the ten-leg install matrix of the brief", () => {
     assert.deepEqual(wf.permissions, { contents: "read" });
-    assert.ok(!("push" in wf.on), "no own tag trigger: plugin-release.yml calls it");
+    assert.ok(!("push" in wf.on), "no own tag trigger: addons-release.yml calls it");
     assert.ok("workflow_call" in wf.on && "pull_request" in wf.on);
     assert.equal(wf.on.schedule[0].cron, "17 3 * * *");
     assert.ok("workflow_dispatch" in wf.on);
-    for (const p of ["scripts/dist/**", "lib/selftest/**", "lib/snapshot/**", ".github/workflows/plugin-dist.yml", "package*.json", "openclaw.plugin.json"]) {
+    for (const p of ["scripts/dist/**", "vendor/**", ".github/workflows/plugin-dist.yml", "package*.json", "plugin-pin.json"]) {
       assert.ok(wf.on.pull_request.paths.includes(p), p);
     }
+    for (const p of wf.on.pull_request.paths) assert.ok(!/^lib\/|openclaw\.plugin\.json/.test(p), `${p} belongs to the plugin repository`);
+    assert.equal(wf.on.workflow_call.inputs["plugin-version"].default, "");
     assert.equal(wf.on.workflow_call.outputs.artifact.value, "${{ jobs.pack.outputs.artifact }}");
     assert.equal(wf.jobs.pack["runs-on"], "ubuntu-24.04");
     const m = wf.jobs.install.strategy;
