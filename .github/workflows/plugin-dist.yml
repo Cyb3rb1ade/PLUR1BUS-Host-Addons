@@ -86,6 +86,10 @@ jobs:
           ref: ${{ steps.pin.outputs.commit }}
           path: plugin
           persist-credentials: false
+          sparse-checkout: |
+            /*
+            !/docs/
+          sparse-checkout-cone-mode: false
       - name: Obtain the plugin tarball (pinned commit packed, or the release's tarball verified)
         id: tgz
         env:

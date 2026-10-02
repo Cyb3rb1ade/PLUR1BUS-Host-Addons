@@ -39,6 +39,9 @@ jobs:
       matrix:
         os: [ubuntu-24.04, macos-15, windows-2025]
     steps:
+      - name: Enable git long paths
+        if: runner.os == 'Windows'
+        run: git config --global core.longpaths true
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
           persist-credentials: false
@@ -67,6 +70,10 @@ jobs:
           ref: ${{ steps.pin.outputs.commit }}
           path: plugin
           persist-credentials: false
+          sparse-checkout: |
+            /*
+            !/docs/
+          sparse-checkout-cone-mode: false
       - name: Install the plugin's runtime dependencies
         working-directory: plugin
         run: npm ci --omit=dev --ignore-scripts --no-audit --no-fund
@@ -96,6 +103,9 @@ jobs:
     runs-on: windows-2025
     timeout-minutes: 30
     steps:
+      - name: Enable git long paths
+        if: runner.os == 'Windows'
+        run: git config --global core.longpaths true
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
           persist-credentials: false
