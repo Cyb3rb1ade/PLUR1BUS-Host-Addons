@@ -9,7 +9,7 @@ import { join } from "node:path";
 import { EXIT } from "../scripts/dist/installer/report.mjs";
 import { readState, writeState } from "../scripts/dist/installer/state.mjs";
 import { assertPurgeable } from "../scripts/dist/installer/uninstall.mjs";
-import { createSnapshot, listSnapshots } from "../lib/snapshot/store-snapshot.js";
+import { createSnapshot, listSnapshots } from "../vendor/plur1bus-memory/lib/snapshot/store-snapshot.js";
 import { makeTempDir } from "./helpers/temp-dir.js";
 import { createInstallerSandbox, mutatingCalls, runSandboxInstaller } from "./helpers/installer-sandbox.js";
 

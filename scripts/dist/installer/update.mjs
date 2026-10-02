@@ -31,7 +31,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { compareVersions, PACKAGE_NAME } from "../build-plugin-feed.mjs";
-import { compareStoreWithSnapshot, createSnapshot, restoreSnapshot, SnapshotError } from "../../../lib/snapshot/store-snapshot.js";
+import { compareStoreWithSnapshot, createSnapshot, restoreSnapshot, SnapshotError } from "../../../vendor/plur1bus-memory/lib/snapshot/store-snapshot.js";
 import { isReadonlyRefusal, PLUGIN_ID, failureSummary } from "./openclaw-cli.mjs";
 import { EXIT, Stop } from "./report.mjs";
 import { writeState } from "./state.mjs";
