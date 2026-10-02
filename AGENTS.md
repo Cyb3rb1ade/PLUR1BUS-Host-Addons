@@ -47,6 +47,10 @@ npm test
 - `tests/vendor-sources.test.js` fails when a file under `vendor/plur1bus-memory/` differs from the SHA-256 in
   `vendor/plur1bus-memory/SOURCES.json`. Never edit vendored files by hand; re-copy from the plugin commit and update
   `SOURCES.json`.
+- Two tests drive the plugin's real MemoryDB (seed-store, the local dry run of the installer leg). They need a checkout of
+  the plugin at the commit in `plugin-pin.json` with `@lancedb/lancedb` installed (`npm ci --omit=dev --omit=optional
+  --ignore-scripts` inside it) named by `PLUR1BUS_PLUGIN_DIR`; without it they skip with a reason, and
+  `PLUR1BUS_REQUIRE_PLUGIN_DIR=1` (set in `ci.yml`) turns the skip into a failure.
 - Two tests depend on the machine: the `dist-ci-helpers` dry run needs 1.5 GiB free disk (the installer's own
   `insufficient-disk` check), and `dist-ci-helpers` / `dist-installer-update` load `@lancedb/lancedb` from this checkout's
   `node_modules`.
