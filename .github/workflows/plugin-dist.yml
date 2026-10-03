@@ -676,12 +676,14 @@ jobs:
             Windows-X64) t=win-x64; dest=/d/a/_temp/plur1bus-ci-core ;;
             *) echo "::error::no sidecar target for $RUNNER_OS-$RUNNER_ARCH"; exit 1 ;;
           esac
-          src="$RUNNER_TEMP/plugin-dist/core-"*"-$t.tar.gz"
-          # shellcheck disable=SC2086
-          set -- $src
-          [ -f "$1" ] || { echo "::error::missing core payload for $t"; ls -l "$RUNNER_TEMP/plugin-dist"; exit 1; }
+          # find, not bash glob: Windows Git Bash RUNNER_TEMP is D:\a\_temp, and those
+          # backslashes swallow the * (hermes windows, run 37160050174).
+          dir="$RUNNER_TEMP/plugin-dist"
+          if command -v cygpath >/dev/null 2>&1; then dir=$(cygpath -u "$dir"); fi
+          src=$(find "$dir" -maxdepth 1 -type f -name "core-*-$t.tar.gz" | head -n 1)
+          [ -n "$src" ] && [ -f "$src" ] || { echo "::error::missing core payload for $t"; ls -l "$dir"; exit 1; }
           mkdir -p "$dest"
-          cp "$1" "$dest/"
+          cp "$src" "$dest/"
       - name: Disposable Hermes locations
         run: |
           {
@@ -835,12 +837,13 @@ jobs:
         if: vars.HM2_SIDECAR_RELEASED != 'true'
         run: |
           set -euo pipefail
-          src="$RUNNER_TEMP/plugin-dist/core-"*"-linux-x64.tar.gz"
-          # shellcheck disable=SC2086
-          set -- $src
-          [ -f "$1" ] || { echo "::error::missing linux-x64 core payload"; ls -l "$RUNNER_TEMP/plugin-dist"; exit 1; }
+          # Same Windows Git Bash glob trap as the native hermes place step (run 37160050174).
+          dir="$RUNNER_TEMP/plugin-dist"
+          if command -v cygpath >/dev/null 2>&1; then dir=$(cygpath -u "$dir"); fi
+          src=$(find "$dir" -maxdepth 1 -type f -name "core-*-linux-x64.tar.gz" | head -n 1)
+          [ -n "$src" ] && [ -f "$src" ] || { echo "::error::missing linux-x64 core payload"; ls -l "$dir"; exit 1; }
           wsl -d Ubuntu-24.04 -- mkdir -p /tmp/plur1bus-ci-core
-          wslpath=$(wsl -d Ubuntu-24.04 -- wslpath -a "$1")
+          wslpath=$(wsl -d Ubuntu-24.04 -- wslpath -a "$src")
           wsl -d Ubuntu-24.04 -- cp "$wslpath" /tmp/plur1bus-ci-core/
       - name: Sign a TEST ONLY feed with hosts.hermes over the pack artefact
         # Node inside WSL fileURLToPath's file:///D:/… to /D:/… (run 37140347849). Installer unchanged.
