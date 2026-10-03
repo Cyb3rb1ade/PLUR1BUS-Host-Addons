@@ -431,6 +431,7 @@ describe("plugin-dist Hermes legs (HM2 Task 11)", () => {
     assert.match(build.run, /cargo build --locked --release -p plur1bus/);
     assert.match(build.run, /assemble-payload\.mjs --target/);
     assert.match(build.run, /createHash\('sha256'\)/);
+    assert.match(build.run, /process\.env\.CORE_PAYLOAD/);
     assert.doesNotMatch(build.run, /sha256sum /);
     assert.match(build.run, /PLUR1BUS_RELEASE_BASE_URL="file:\/\/\/tmp\/plur1bus-ci-core"/);
     assert.match(build.run, /PLUR1BUS_RELEASE_BASE_URL="file:\/\/\/D:\/a\/_temp\/plur1bus-ci-core"/);

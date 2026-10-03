@@ -303,7 +303,9 @@ jobs:
           payload="$out/core-$VERSION-$TARGET.tar.gz"
           node scripts/release/assemble-payload.mjs --target "$TARGET" --out "$payload"
           # node, not sha256sum: macOS runners have shasum, not GNU sha256sum.
-          PLUR1BUS_CORE_SHA256=$(node -e "console.log(require('crypto').createHash('sha256').update(require('fs').readFileSync(process.argv[2])).digest('hex'))" "$payload")
+          # Node 24+ puts -e extra args at argv[1] (no "[eval]" placeholder), so pass the path via env.
+          [ -f "$payload" ] || { echo "::error::missing core payload $payload"; exit 1; }
+          PLUR1BUS_CORE_SHA256=$(CORE_PAYLOAD="$payload" node -e "console.log(require('crypto').createHash('sha256').update(require('fs').readFileSync(process.env.CORE_PAYLOAD)).digest('hex'))")
           export PLUR1BUS_CORE_SHA256
           # setup.rs builds {base}/core-{version}-{target}.tar.gz. Native Ubuntu/macOS and WSL share /tmp;
           # windows-2025 GitHub-hosted runners keep RUNNER_TEMP on D:\a\_temp (hermes-wsl run 37140347849).
