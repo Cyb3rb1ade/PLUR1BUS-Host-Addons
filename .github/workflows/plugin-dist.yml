@@ -23,6 +23,11 @@ on:
   schedule:
     - cron: '17 3 * * *'
   workflow_dispatch:
+    inputs:
+      only:
+        description: "After pack, run only this job (install, hermes, wsl, hermes-wsl, node-pins, upgrade-from-release). Empty runs every job."
+        type: string
+        default: ""
   pull_request:
     paths:
       - 'scripts/dist/**'
@@ -30,6 +35,7 @@ on:
       - '.github/workflows/plugin-dist.yml'
       - 'package*.json'
       - 'plugin-pin.json'
+      - 'harness-pin.json'
       - 'tests/helpers/assert-disposable.mjs'
       - 'tests/helpers/seed-store.mjs'
       - 'tests/helpers/store-digest.mjs'
@@ -117,6 +123,36 @@ jobs:
             cp "$rel/$tgz" "$out/$tgz"
           fi
           echo "tgz=$tgz" >> "$GITHUB_OUTPUT"
+      # Until vars.HM2_SIDECAR_RELEASED is true there is no harness GitHub Release. The pack job
+      # builds the provider tarball from the public harness at harness-pin.json; sign-feed-for-ci
+      # rewrites only the TEST-ONLY feed's hosts.hermes.provider to that file:// artefact.
+      # Production feed and installer stay on the lock's https URLs.
+      - name: Read the harness pin
+        id: harness
+        run: |
+          set -euo pipefail
+          node -e 'const p=JSON.parse(require("fs").readFileSync("harness-pin.json","utf8")); if(p.repo!=="Cyb3rb1ade/PLUR1BUS-Harness") throw new Error("unexpected harness repo "+p.repo); if(!/^[0-9a-f]{40}$/.test(p.commit)) throw new Error("harness-pin.json commit is not a full SHA"); console.log("repo="+p.repo); console.log("commit="+p.commit)' >> "$GITHUB_OUTPUT"
+      - name: Check out the harness at the pinned commit
+        if: vars.HM2_SIDECAR_RELEASED != 'true'
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          repository: Cyb3rb1ade/PLUR1BUS-Harness
+          ref: ${{ steps.harness.outputs.commit }}
+          path: harness
+          persist-credentials: false
+      - name: Build the Hermes provider from source (TEST ONLY)
+        if: vars.HM2_SIDECAR_RELEASED != 'true'
+        run: |
+          set -euo pipefail
+          out="$RUNNER_TEMP/plugin-dist"
+          mkdir -p "$out"
+          line=$(node harness/scripts/build-hermes-provider.mjs --out "$out")
+          echo "$line"
+          name=$(printf '%s' "$line" | awk '{print $2}')
+          sum=$(printf '%s' "$line" | awk '{print $1}')
+          [ -n "$name" ] && [ -f "$out/$name" ] || { echo "::error::provider tarball was not written ($line)"; exit 1; }
+          echo "$sum  $name" | (cd "$out" && sha256sum -c -)
+          node -e 'const fs=require("fs"); const [f,name,sha]=process.argv.slice(1); fs.writeFileSync(f, JSON.stringify({provider:{file:name,sha256:sha}},null,2)+"\n")' "$out/hermes-ci.json" "$name" "$sum"
       - name: Pack the -ci.0 twin, the installer bundle and TEST ONLY bootstraps
         id: pack
         env:
@@ -185,7 +221,12 @@ jobs:
   install:
     name: install (${{ matrix.runner }}, OpenClaw ${{ matrix.openclaw }})
     needs: pack
+    if: github.event_name != 'workflow_dispatch' || inputs.only == '' || inputs.only == 'install'
     runs-on: ${{ matrix.runner }}
+    # OpenClaw 2026.9.8 (latest) copies the plugin into openclaw-plugin-build-* and then loads
+    # sharp from that tree. On Linux the optional libvips package is missing (ERR_DLOPEN_FAILED).
+    # Temporary: do not fail the workflow on OpenClaw latest. Draft issue is in the PR body.
+    continue-on-error: ${{ matrix.openclaw == 'latest' }}
     timeout-minutes: 150
     strategy:
       fail-fast: false
@@ -306,6 +347,7 @@ jobs:
   wsl:
     name: wsl (windows-2025, Ubuntu-24.04, OpenClaw latest)
     needs: pack
+    if: github.event_name != 'workflow_dispatch' || inputs.only == '' || inputs.only == 'wsl'
     runs-on: windows-2025
     continue-on-error: true
     timeout-minutes: 120
@@ -358,7 +400,7 @@ jobs:
   upgrade-from-release:
     name: upgrade-from-release (nightly)
     needs: pack
-    if: github.event_name == 'schedule'
+    if: github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && (inputs.only == '' || inputs.only == 'upgrade-from-release'))
     runs-on: ubuntu-24.04
     continue-on-error: true
     timeout-minutes: 120
@@ -391,9 +433,15 @@ jobs:
           set -euo pipefail
           tag=$(gh release view --repo "$PLUGIN_REPO" --json tagName -q .tagName)
           mkdir -p "$RUNNER_TEMP/release"
-          gh release download "$tag" --repo "$PLUGIN_REPO" --pattern 'cyb3rb1ade-plur1bus-memory-*.tgz' --dir "$RUNNER_TEMP/release"
-          f=$(find "$RUNNER_TEMP/release" -maxdepth 1 -name 'cyb3rb1ade-plur1bus-memory-*.tgz' | sort | head -n 1)
-          [ -n "$f" ] || { echo "release $tag has no cyb3rb1ade-plur1bus-memory-*.tgz asset" >&2; exit 1; }
+          names=$(gh release view "$tag" --repo "$PLUGIN_REPO" --json assets --jq '.assets[].name')
+          pick=$(printf '%s\n' "$names" | grep -E '^cyb3rb1ade-plur1bus-memory-.+\.tgz$' | sort | head -n 1)
+          if [ -z "$pick" ]; then
+            pick=$(printf '%s\n' "$names" | grep -E '^plur1bus-.+\.tgz$' | sort | head -n 1)
+          fi
+          [ -n "$pick" ] || { echo "::error::release $tag has neither cyb3rb1ade-plur1bus-memory-*.tgz nor plur1bus-*.tgz" >&2; printf '%s\n' "$names" >&2; exit 1; }
+          gh release download "$tag" --repo "$PLUGIN_REPO" --pattern "$pick" --dir "$RUNNER_TEMP/release"
+          f="$RUNNER_TEMP/release/$pick"
+          [ -f "$f" ] || { echo "::error::downloaded $pick is missing" >&2; exit 1; }
           rv=$(node --input-type=module -e 'import { readFileSync } from "node:fs"; import { readPackageJsonFromTgz } from "./scripts/dist/build-plugin-feed.mjs"; process.stdout.write(readPackageJsonFromTgz(readFileSync(process.argv[1])).version)' "$f")
           { echo "RELEASE_TGZ=$f"; echo "RELEASE_VERSION=$rv"; } >> "$GITHUB_ENV"
           printf '### upgrade-from-release: %s (%s) → pack %s\n\n' "$tag" "$rv" "${{ needs.pack.outputs.version }}" >> "$GITHUB_STEP_SUMMARY"
@@ -435,12 +483,14 @@ jobs:
   # pinned sidecar into a disposable Hermes on three OSes, min (743ee72 = 0.21.4) and latest (tested, f97608f =
   # 0.21.5). Hermes comes from that commit's own installer (harness hermes-host.yml, fact sheet §1), under
   # $RUNNER_TEMP: HERMES_HOME, PLUR1BUS_HOME, and HOME/XDG on POSIX. setup runs with --no-service
-  # (PLUR1BUS_PLUGIN_TEST_NO_SERVICE=1) and the flat-embedder seam (no model download, F21). The sidecar and provider
-  # artefacts are the harness release P4 named by scripts/dist/hermes-sidecar.lock.json: until it is released (and
-  # vars.HM2_SIDECAR_RELEASED is 'true') the lock is a placeholder and these legs cannot pass, hence continue-on-error.
+  # (PLUR1BUS_PLUGIN_TEST_NO_SERVICE=1) and the flat-embedder seam (no model download, F21). Until
+  # vars.HM2_SIDECAR_RELEASED is 'true' there is no harness GitHub Release: pack builds the provider from
+  # harness-pin.json and the TEST-ONLY feed serves it over file://. Sidecar binaries still 404, hence
+  # continue-on-error. The production installer is unchanged.
   hermes:
     name: hermes (${{ matrix.runner }}, Hermes ${{ matrix.hermes }})
     needs: pack
+    if: github.event_name != 'workflow_dispatch' || inputs.only == '' || inputs.only == 'hermes'
     runs-on: ${{ matrix.runner }}
     continue-on-error: ${{ vars.HM2_SIDECAR_RELEASED != 'true' }}
     timeout-minutes: 90
@@ -580,6 +630,7 @@ jobs:
   hermes-wsl:
     name: hermes-wsl (windows-2025, Ubuntu-24.04, Hermes min)
     needs: pack
+    if: github.event_name != 'workflow_dispatch' || inputs.only == '' || inputs.only == 'hermes-wsl'
     runs-on: windows-2025
     continue-on-error: true
     timeout-minutes: 120
@@ -628,6 +679,7 @@ jobs:
   # sidecar lock's Node version.
   node-pins:
     name: node-pins (nodejs.org SHASUMS256.txt)
+    if: github.event_name != 'workflow_dispatch' || inputs.only == '' || inputs.only == 'node-pins'
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:

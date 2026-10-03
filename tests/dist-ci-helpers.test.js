@@ -248,7 +248,7 @@ describe("plugin-dist workflow", () => {
     const text = readFileSync(WORKFLOW, "utf8");
     assert.ok(!text.includes(pin.commit), "the commit is read from plugin-pin.json, not repeated in the workflow");
     const steps = wf.jobs.pack.steps;
-    const checkout = steps.find((s) => String(s.uses).startsWith("actions/checkout@") && s.with?.repository);
+    const checkout = steps.find((s) => String(s.uses).startsWith("actions/checkout@") && s.with?.path === "plugin");
     assert.ok(checkout, "a checkout of the plugin repository");
     assert.equal(checkout.with.repository, pin.repo);
     assert.equal(checkout.with.path, "plugin");
@@ -264,13 +264,37 @@ describe("plugin-dist workflow", () => {
     assert.ok(!/GITHUB_REPOSITORY/.test(text), "no step reads a release of this repository as the plugin");
   });
 
+  it("plugin-dist.yml builds the Hermes provider from harness-pin.json when HM2_SIDECAR_RELEASED is not true", () => {
+    const pin = JSON.parse(readFileSync(join(REPO, "harness-pin.json"), "utf8"));
+    assert.deepEqual(Object.keys(pin).sort(), ["commit", "repo"]);
+    assert.equal(pin.repo, "Cyb3rb1ade/PLUR1BUS-Harness");
+    assert.match(pin.commit, /^[0-9a-f]{40}$/);
+    const text = readFileSync(WORKFLOW, "utf8");
+    assert.ok(!text.includes(pin.commit), "the harness commit is read from harness-pin.json, not repeated in the workflow");
+    const steps = wf.jobs.pack.steps;
+    const read = steps.find((s) => s.id === "harness").run;
+    assert.match(read, /harness-pin\.json/);
+    const checkout = steps.find((s) => String(s.uses).startsWith("actions/checkout@") && s.with?.path === "harness");
+    assert.ok(checkout, "a checkout of the harness repository");
+    assert.equal(checkout.with.repository, pin.repo);
+    assert.equal(checkout.with.ref, "${{ steps.harness.outputs.commit }}");
+    assert.equal(checkout.with["persist-credentials"], false);
+    assert.equal(checkout.if, "vars.HM2_SIDECAR_RELEASED != 'true'");
+    const build = steps.find((s) => s.name === "Build the Hermes provider from source (TEST ONLY)");
+    assert.equal(build.if, "vars.HM2_SIDECAR_RELEASED != 'true'");
+    assert.match(build.run, /node harness\/scripts\/build-hermes-provider\.mjs --out/);
+    assert.match(build.run, /hermes-ci\.json/);
+    assert.ok(!/scripts\/dist\/installer/.test(build.run), "the installer is not invoked to build the provider");
+  });
+
   it("plugin-dist.yml has the triggers, permissions and the ten-leg install matrix of the brief", () => {
     assert.deepEqual(wf.permissions, { contents: "read" });
     assert.ok(!("push" in wf.on), "no own tag trigger: addons-release.yml calls it");
     assert.ok("workflow_call" in wf.on && "pull_request" in wf.on);
     assert.equal(wf.on.schedule[0].cron, "17 3 * * *");
     assert.ok("workflow_dispatch" in wf.on);
-    for (const p of ["scripts/dist/**", "vendor/**", ".github/workflows/plugin-dist.yml", "package*.json", "plugin-pin.json"]) {
+    assert.equal(wf.on.workflow_dispatch.inputs.only.default, "");
+    for (const p of ["scripts/dist/**", "vendor/**", ".github/workflows/plugin-dist.yml", "package*.json", "plugin-pin.json", "harness-pin.json"]) {
       assert.ok(wf.on.pull_request.paths.includes(p), p);
     }
     for (const p of wf.on.pull_request.paths) assert.ok(!/^lib\/|openclaw\.plugin\.json/.test(p), `${p} belongs to the plugin repository`);
@@ -281,12 +305,18 @@ describe("plugin-dist workflow", () => {
     assert.equal(m["fail-fast"], false);
     assert.deepEqual(m.matrix.runner, ["ubuntu-24.04", "ubuntu-24.04-arm", "macos-15", "windows-2025", "windows-11-arm"]);
     assert.deepEqual(m.matrix.openclaw, ["min", "latest"]);
-    assert.equal(wf.jobs.install["continue-on-error"], undefined, "the ten install legs are required");
+    assert.match(String(wf.jobs.install.if), /workflow_dispatch/);
+    assert.equal(wf.jobs.install["continue-on-error"], "${{ matrix.openclaw == 'latest' }}", "OpenClaw latest: labelled continue-on-error for the sharp/libvips capture regression");
     assert.deepEqual(wf.jobs.install.needs, "pack");
     assert.equal(wf.jobs.wsl["runs-on"], "windows-2025");
     assert.equal(wf.jobs.wsl["continue-on-error"], true);
     assert.equal(wf.jobs["upgrade-from-release"]["continue-on-error"], true);
     assert.match(wf.jobs["upgrade-from-release"].if, /schedule/);
+    assert.match(wf.jobs["upgrade-from-release"].if, /workflow_dispatch/);
+    const upgradeDownload = wf.jobs["upgrade-from-release"].steps.find((s) => /newest GitHub Release tarball/.test(s.name ?? ""));
+    assert.match(upgradeDownload.run, /cyb3rb1ade-plur1bus-memory-\.\+\\.tgz/);
+    assert.match(upgradeDownload.run, /plur1bus-\.\+\\.tgz/);
+    assert.match(upgradeDownload.run, /neither cyb3rb1ade-plur1bus-memory-\*\.tgz nor plur1bus-\*\.tgz/);
     const text = readFileSync(WORKFLOW, "utf8");
     assert.match(text, /Vampire\/setup-wsl@[0-9a-f]{40} # v\d/);
     assert.ok(!/secrets\./.test(text), "the workflow uses no secrets");
@@ -362,6 +392,24 @@ describe("plugin-dist Hermes legs (HM2 Task 11)", () => {
     // --no-hermes: as before
     const none = await signFeedForCi({ artefacts: dir, outDir: join(dir, "feed2"), hermesLock: null });
     assert.equal(JSON.parse(readFileSync(none.feedFile, "utf8")).hosts.hermes, undefined);
+  });
+
+  it("the CI feed rewrites hosts.hermes.provider to the pack's built tarball when hermes-ci.json is present", async () => {
+    const dir = makeTempDir("ci-feed-hermes-src-");
+    await packArtefact(dir);
+    const name = "plur1bus-hermes-provider-0.1.0.tar.gz";
+    const bytes = Buffer.from("TEST ONLY hermes provider tarball\n");
+    writeFileSync(join(dir, name), bytes);
+    const sha256 = createHash("sha256").update(bytes).digest("hex");
+    writeFileSync(join(dir, "hermes-ci.json"), JSON.stringify({ provider: { file: name, sha256 } }) + "\n");
+    const r = await signFeedForCi({ artefacts: dir, outDir: join(dir, "feed") });
+    const feed = JSON.parse(readFileSync(r.feedFile, "utf8"));
+    const lock = JSON.parse(readFileSync(join(REPO, "scripts", "dist", "hermes-sidecar.lock.json"), "utf8"));
+    assert.equal(feed.hosts.hermes.releases[0].provider.url, pathToFileURL(join(dir, name)).href);
+    assert.equal(feed.hosts.hermes.releases[0].provider.sha256, sha256);
+    assert.notEqual(feed.hosts.hermes.releases[0].provider.url, lock.provider.url);
+    assert.deepEqual(feed.hosts.hermes.releases[0].sidecar.binary, lock.binary);
+    assert.deepEqual(validateFeed(feed, { allowFile: true }), { ok: true, errors: [] });
   });
 
   it("assert-disposable --host hermes checks HERMES_HOME and PLUR1BUS_HOME", () => {

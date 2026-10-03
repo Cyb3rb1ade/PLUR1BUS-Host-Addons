@@ -6,10 +6,11 @@
  *   [--github-env <file>] [--hermes-lock <lock.json> | --no-hermes]
  *
  * HM2 Task 11: the feed also carries `hosts.hermes`, built from scripts/dist/hermes-sidecar.lock.json (or
- * --hermes-lock) with build-plugin-feed.mjs exactly as the release does. Its provider and sidecar URLs stay the
- * harness release's https URLs (the installer verifies them by SHA-256). A lock still marked `"placeholder": true`
- * is accepted here only (TEST ONLY feed): until the harness release P4 fills it, the Hermes legs fail at the first
- * download, which is why they are continue-on-error (HM2-R19).
+ * --hermes-lock) with build-plugin-feed.mjs exactly as the release does. Sidecar URLs stay the lock's https
+ * URLs. When the pack artefact contains `hermes-ci.json` (CI built the provider from harness-pin.json because
+ * HM2_SIDECAR_RELEASED is not true), the provider URL is replaced by the local file:// artefact and its real
+ * SHA-256. Production feeds never take this path. A lock still marked `"placeholder": true` is accepted here
+ * only (TEST ONLY feed).
  *
  * <artefacts> is the plugin-dist `pack` artefact: pack.json ({ version, ciVersion, tgz, ciTgz }), the tarballs it
  * names, plur1bus-plugin-installer.mjs, install-plugin.sh and install-plugin.ps1. Every tarball (the pack's two plus
@@ -24,7 +25,8 @@
  * Prints { feedUrl, publicKey, versions } as one JSON line; exit 0, or 1 with the reason on stderr.
  */
 
-import { appendFileSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { createHash } from "node:crypto";
+import { appendFileSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -37,6 +39,33 @@ import { generateTestKeyPair } from "./minisign-sign.js";
 const PLACEHOLDER = "https://ci.invalid/TEST-ONLY/";
 const NOTES = { de: "TEST ONLY: CI-Feed des plugin-dist-Workflows.\n", en: "TEST ONLY: feed of the plugin-dist workflow.\n" };
 export const DEFAULT_HERMES_LOCK = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..", "scripts", "dist", "hermes-sidecar.lock.json");
+
+/**
+ * When the pack artefact includes hermes-ci.json (CI built the provider from harness source), point
+ * hosts.hermes.provider at that local tarball. Sidecar URLs stay as the lock wrote them.
+ * @param {object} feed
+ * @param {string} dir pack artefact directory
+ */
+export function rewriteHermesProviderFromArtefacts(feed, dir) {
+  const ciPath = join(dir, "hermes-ci.json");
+  if (!existsSync(ciPath) || !feed?.hosts?.hermes?.releases) return;
+  const ci = JSON.parse(readFileSync(ciPath, "utf8"));
+  const name = ci?.provider?.file;
+  if (typeof name !== "string" || name.includes("/") || name.includes("\\") || name.includes("..")) {
+    throw new Error("hermes-ci.json provider.file is missing or not a basename");
+  }
+  const file = join(dir, name);
+  if (!existsSync(file)) throw new Error(`hermes-ci.json names ${name}, which is not in the pack artefact`);
+  const sha256 = createHash("sha256").update(readFileSync(file)).digest("hex");
+  if (ci.provider.sha256 && ci.provider.sha256 !== sha256) {
+    throw new Error(`hermes-ci.json sha256 does not match ${name}`);
+  }
+  const url = pathToFileURL(file).href;
+  for (const r of feed.hosts.hermes.releases) {
+    r.provider.url = url;
+    r.provider.sha256 = sha256;
+  }
+}
 
 /**
  * @param {{ artefacts: string, outDir: string, extraTgz?: string[], channel?: string, hermesLock?: string|null }} o
@@ -109,6 +138,7 @@ export async function signFeedForCi({ artefacts, outDir, extraTgz = [], channel 
     feed.bootstrap.sh.url = local(feed.bootstrap.sh.url);
     feed.bootstrap.ps1.url = local(feed.bootstrap.ps1.url);
     for (const r of feed.hosts.openclaw.releases) r.tarball.url = local(r.tarball.url);
+    rewriteHermesProviderFromArtefacts(feed, dir);
     const valid = validateFeed(feed, { allowFile: true });
     if (!valid.ok) throw new Error(`CI feed is invalid:\n  ${valid.errors.join("\n  ")}`);
 

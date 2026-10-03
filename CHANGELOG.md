@@ -63,6 +63,13 @@ Installer installiert. Die Einträge von 0.1.0 stammen aus dem Abschnitt `[7.19.
 
 ### Geändert
 
+- `plugin-dist.yml` baut den Hermes-Provider aus dem Harness-Commit in `harness-pin.json`,
+  solange `HM2_SIDECAR_RELEASED` nicht `true` ist, und das TEST-ONLY-CI-Feed zeigt auf
+  diese `file://`-Datei. Der Produktions-Feed und der Installer bleiben unverändert.
+- `upgrade-from-release` akzeptiert `cyb3rb1ade-plur1bus-memory-*.tgz` und
+  `plur1bus-*.tgz`. `plugin-pin.json` zeigt auf Plugin `3690fb3` (7.18.4 inkl. #207).
+- OpenClaw `latest` in der Install-Matrix ist vorübergehend `continue-on-error`
+  (sharp/libvips unter Linux nach OpenClaw 2026.9.8).
 - Der Feed erlaubt `hosts.hermes` (Schema).
 - Solange `scripts/dist/hermes-sidecar.lock.json` ein Platzhalter ist, baut
   auch ein echter Lauf den Feed ohne neues Hermes-Release und warnt in Log und
