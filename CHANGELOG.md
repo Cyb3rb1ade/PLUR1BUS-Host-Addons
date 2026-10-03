@@ -67,8 +67,9 @@ Installer installiert. Die Einträge von 0.1.0 stammen aus dem Abschnitt `[7.19.
   solange `HM2_SIDECAR_RELEASED` nicht `true` ist, und das TEST-ONLY-CI-Feed zeigt auf
   diese `file://`-Datei. Der Produktions-Feed und der Installer bleiben unverändert.
 - `upgrade-from-release` akzeptiert `cyb3rb1ade-plur1bus-memory-*.tgz` und
-  `plur1bus-*.tgz` (grep-Fallback unter `pipefail`). `plugin-pin.json` zeigt auf
-  Plugin `3690fb3` (7.18.4 inkl. #207).
+  `plur1bus-*.tgz` (grep-Fallback unter `pipefail`). Liegt das Release auf
+  derselben Version wie der Pin, entfällt der Upgrade-Lauf. `plugin-pin.json`
+  zeigt auf Plugin `3690fb3` (7.18.4 inkl. #207).
 - `hermes-wsl` schreibt die Provider-`file://`-URL im TEST-ONLY-Feed als
   `/mnt/<laufwerk>/…`, weil Node in WSL aus `file:///D:/…` den Pfad `/D:/…` macht.
 - OpenClaw `latest` in der Install-Matrix ist vorübergehend `continue-on-error`

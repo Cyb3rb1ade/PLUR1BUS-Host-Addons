@@ -471,10 +471,17 @@ jobs:
           path: ${{ runner.temp }}/oc-home/models/plur1bus
           key: e5-614241f6-${{ runner.os }}-${{ runner.arch }}
       - name: Sign a TEST ONLY feed over the release and the pack
+        if: env.RELEASE_VERSION != needs.pack.outputs.version
         run: node tests/helpers/sign-feed-for-ci.mjs --artefacts "$RUNNER_TEMP/plugin-dist" --tgz "$RELEASE_TGZ" --out-dir "$OC_FEED_DIR"
       # The release predates `plur1bus selftest`, so it is installed raw and the forced-failure rollback (whose verify
       # runs the old version's selftest) is skipped; the upgrade itself goes through install-plugin.sh --update.
+      # Pin 3690fb3 is 7.18.4, the same version as the newest GitHub Release, so there is no older tarball to
+      # upgrade from. The download step above still has to accept the asset name.
+      - name: Nothing to upgrade when the release version is the pack
+        if: env.RELEASE_VERSION == needs.pack.outputs.version
+        run: printf 'release %s is already the packed pin; the asset name matched, the upgrade body is skipped\n' "$RELEASE_VERSION" >> "$GITHUB_STEP_SUMMARY"
       - name: Upgrade the release to the pack through the installer (store digest equal)
+        if: env.RELEASE_VERSION != needs.pack.outputs.version
         run: node tests/helpers/ci-plugin-dist.mjs installer --artefacts "$RUNNER_TEMP/plugin-dist" --feed-dir "$OC_FEED_DIR" --bootstrap sh --from raw --from-tgz "$RELEASE_TGZ" --skip-forced-failure
       - name: ClawHub install record vs the GitHub Release tarball (fact k, informational)
         continue-on-error: true

@@ -322,6 +322,8 @@ describe("plugin-dist workflow", () => {
       /\{ grep -E '\^cyb3rb1ade-plur1bus-memory-\.\+\\.tgz\$' \|\| true; \}/,
       "a missing npm-pack name must not abort under pipefail before the plur1bus-*.tgz fallback",
     );
+    const upgradeBody = wf.jobs["upgrade-from-release"].steps.find((s) => s.name === "Upgrade the release to the pack through the installer (store digest equal)");
+    assert.equal(upgradeBody.if, "env.RELEASE_VERSION != needs.pack.outputs.version");
     const text = readFileSync(WORKFLOW, "utf8");
     assert.match(text, /Vampire\/setup-wsl@[0-9a-f]{40} # v\d/);
     assert.ok(!/secrets\./.test(text), "the workflow uses no secrets");
