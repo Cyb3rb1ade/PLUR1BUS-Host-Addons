@@ -317,6 +317,11 @@ describe("plugin-dist workflow", () => {
     assert.match(upgradeDownload.run, /cyb3rb1ade-plur1bus-memory-\.\+\\.tgz/);
     assert.match(upgradeDownload.run, /plur1bus-\.\+\\.tgz/);
     assert.match(upgradeDownload.run, /neither cyb3rb1ade-plur1bus-memory-\*\.tgz nor plur1bus-\*\.tgz/);
+    assert.match(
+      upgradeDownload.run,
+      /\{ grep -E '\^cyb3rb1ade-plur1bus-memory-\.\+\\.tgz\$' \|\| true; \}/,
+      "a missing npm-pack name must not abort under pipefail before the plur1bus-*.tgz fallback",
+    );
     const text = readFileSync(WORKFLOW, "utf8");
     assert.match(text, /Vampire\/setup-wsl@[0-9a-f]{40} # v\d/);
     assert.ok(!/secrets\./.test(text), "the workflow uses no secrets");

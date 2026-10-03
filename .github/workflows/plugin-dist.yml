@@ -434,9 +434,10 @@ jobs:
           tag=$(gh release view --repo "$PLUGIN_REPO" --json tagName -q .tagName)
           mkdir -p "$RUNNER_TEMP/release"
           names=$(gh release view "$tag" --repo "$PLUGIN_REPO" --json assets --jq '.assets[].name')
-          pick=$(printf '%s\n' "$names" | grep -E '^cyb3rb1ade-plur1bus-memory-.+\.tgz$' | sort | head -n 1)
+          # grep exits 1 when the preferred npm-pack name is absent; keep going under pipefail.
+          pick=$(printf '%s\n' "$names" | { grep -E '^cyb3rb1ade-plur1bus-memory-.+\.tgz$' || true; } | sort | head -n 1)
           if [ -z "$pick" ]; then
-            pick=$(printf '%s\n' "$names" | grep -E '^plur1bus-.+\.tgz$' | sort | head -n 1)
+            pick=$(printf '%s\n' "$names" | { grep -E '^plur1bus-.+\.tgz$' || true; } | sort | head -n 1)
           fi
           [ -n "$pick" ] || { echo "::error::release $tag has neither cyb3rb1ade-plur1bus-memory-*.tgz nor plur1bus-*.tgz" >&2; printf '%s\n' "$names" >&2; exit 1; }
           gh release download "$tag" --repo "$PLUGIN_REPO" --pattern "$pick" --dir "$RUNNER_TEMP/release"
