@@ -6,11 +6,12 @@
  *   [--github-env <file>] [--hermes-lock <lock.json> | --no-hermes] [--wsl-file-urls]
  *
  * HM2 Task 11: the feed also carries `hosts.hermes`, built from scripts/dist/hermes-sidecar.lock.json (or
- * --hermes-lock) with build-plugin-feed.mjs exactly as the release does. Sidecar URLs stay the lock's https
- * URLs. When the pack artefact contains `hermes-ci.json` (CI built the provider from harness-pin.json because
- * HM2_SIDECAR_RELEASED is not true), the provider URL is replaced by the local file:// artefact and its real
- * SHA-256. Production feeds never take this path. A lock still marked `"placeholder": true` is accepted here
- * only (TEST ONLY feed).
+ * --hermes-lock) with build-plugin-feed.mjs exactly as the release does. When the pack artefact contains
+ * `hermes-ci.json` (CI built the provider from harness-pin.json because HM2_SIDECAR_RELEASED is not true),
+ * the provider URL is replaced by the local file:// artefact and its real SHA-256. Sidecar binaries named
+ * `plur1bus-<target>[.exe]` in the same directory (build-sidecar) replace the lock's https URLs the same way.
+ * Production feeds never take this path. A lock still marked `"placeholder": true` is accepted here only
+ * (TEST ONLY feed).
  *
  * <artefacts> is the plugin-dist `pack` artefact: pack.json ({ version, ciVersion, tgz, ciTgz }), the tarballs it
  * names, plur1bus-plugin-installer.mjs, install-plugin.sh and install-plugin.ps1. Every tarball (the pack's two plus
@@ -40,9 +41,25 @@ const PLACEHOLDER = "https://ci.invalid/TEST-ONLY/";
 const NOTES = { de: "TEST ONLY: CI-Feed des plugin-dist-Workflows.\n", en: "TEST ONLY: feed of the plugin-dist workflow.\n" };
 export const DEFAULT_HERMES_LOCK = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..", "scripts", "dist", "hermes-sidecar.lock.json");
 
+/** Basenames `build-sidecar` uploads; a missing file leaves that target on the lock's https URL. */
+export const HERMES_SIDECAR_FILES = Object.freeze({
+  "linux-x64": "plur1bus-linux-x64",
+  "linux-arm64": "plur1bus-linux-arm64",
+  "darwin-arm64": "plur1bus-darwin-arm64",
+  "win-x64": "plur1bus-win-x64.exe",
+  "win-arm64": "plur1bus-win-arm64.exe",
+});
+
+function assertArtefactBasename(name, what) {
+  if (typeof name !== "string" || name.includes("/") || name.includes("\\") || name.includes("..")) {
+    throw new Error(`${what} is missing or not a basename`);
+  }
+  return name;
+}
+
 /**
  * When the pack artefact includes hermes-ci.json (CI built the provider from harness source), point
- * hosts.hermes.provider at that local tarball. Sidecar URLs stay as the lock wrote them.
+ * hosts.hermes.provider at that local tarball.
  * @param {object} feed
  * @param {string} dir pack artefact directory
  */
@@ -50,10 +67,7 @@ export function rewriteHermesProviderFromArtefacts(feed, dir) {
   const ciPath = join(dir, "hermes-ci.json");
   if (!existsSync(ciPath) || !feed?.hosts?.hermes?.releases) return;
   const ci = JSON.parse(readFileSync(ciPath, "utf8"));
-  const name = ci?.provider?.file;
-  if (typeof name !== "string" || name.includes("/") || name.includes("\\") || name.includes("..")) {
-    throw new Error("hermes-ci.json provider.file is missing or not a basename");
-  }
+  const name = assertArtefactBasename(ci?.provider?.file, "hermes-ci.json provider.file");
   const file = join(dir, name);
   if (!existsSync(file)) throw new Error(`hermes-ci.json names ${name}, which is not in the pack artefact`);
   const sha256 = createHash("sha256").update(readFileSync(file)).digest("hex");
@@ -68,8 +82,32 @@ export function rewriteHermesProviderFromArtefacts(feed, dir) {
 }
 
 /**
+ * When build-sidecar left `plur1bus-<target>[.exe]` in the artefact directory, point
+ * hosts.hermes.sidecar.binary[target] at that local file. Missing targets stay on the lock.
+ * @param {object} feed
+ * @param {string} dir pack / sidecar artefact directory
+ */
+export function rewriteHermesSidecarFromArtefacts(feed, dir) {
+  if (!feed?.hosts?.hermes?.releases) return;
+  const found = {};
+  for (const [target, name] of Object.entries(HERMES_SIDECAR_FILES)) {
+    assertArtefactBasename(name, `sidecar basename for ${target}`);
+    const file = join(dir, name);
+    if (!existsSync(file)) continue;
+    found[target] = { url: pathToFileURL(file).href, sha256: createHash("sha256").update(readFileSync(file)).digest("hex") };
+  }
+  if (Object.keys(found).length === 0) return;
+  for (const r of feed.hosts.hermes.releases) {
+    if (!r.sidecar?.binary) continue;
+    for (const [target, art] of Object.entries(found)) {
+      if (r.sidecar.binary[target]) Object.assign(r.sidecar.binary[target], art);
+    }
+  }
+}
+
+/**
  * Node inside WSL turns `file:///D:/…` into `/D:/…` and ENOENTs. The installer stays as it is;
- * only the TEST-ONLY feed for hermes-wsl rewrites the provider URL to `/mnt/<drive>/…`.
+ * only the TEST-ONLY feed for hermes-wsl rewrites provider and sidecar file:// URLs to `/mnt/<drive>/…`.
  * @param {string} url
  */
 export function windowsFileUrlAsWsl(url) {
@@ -79,17 +117,26 @@ export function windowsFileUrlAsWsl(url) {
 }
 
 /** @param {object} feed */
+function rewriteFileUrlForWsl(url) {
+  return typeof url === "string" && /^file:\/\/\/[A-Za-z]:\//.test(url) ? windowsFileUrlAsWsl(url) : url;
+}
+
 export function rewriteHermesProviderUrlsForWsl(feed) {
   if (!feed?.hosts?.hermes?.releases) return;
   for (const r of feed.hosts.hermes.releases) {
-    if (typeof r.provider?.url === "string" && r.provider.url.startsWith("file:")) r.provider.url = windowsFileUrlAsWsl(r.provider.url);
+    if (r.provider) r.provider.url = rewriteFileUrlForWsl(r.provider.url);
+    const bins = r.sidecar?.binary;
+    if (!bins) continue;
+    for (const t of Object.keys(bins)) {
+      if (bins[t]) bins[t].url = rewriteFileUrlForWsl(bins[t].url);
+    }
   }
 }
 
 /**
  * @param {{ artefacts: string, outDir: string, extraTgz?: string[], channel?: string, hermesLock?: string|null, wslFileUrls?: boolean }} o
  *   `hermesLock`: the lock for hosts.hermes (default scripts/dist/hermes-sidecar.lock.json); null = no hosts.hermes
- *   `wslFileUrls`: rewrite the CI provider file:// URL for Node inside WSL (hermes-wsl only)
+ *   `wslFileUrls`: rewrite CI provider and sidecar file:// URLs for Node inside WSL (hermes-wsl only)
  * @returns {Promise<{ feedFile: string, feedUrl: string, publicKey: string, versions: string[] }>}
  */
 export async function signFeedForCi({ artefacts, outDir, extraTgz = [], channel = "stable", hermesLock = DEFAULT_HERMES_LOCK, wslFileUrls = false }) {
@@ -159,6 +206,7 @@ export async function signFeedForCi({ artefacts, outDir, extraTgz = [], channel 
     feed.bootstrap.ps1.url = local(feed.bootstrap.ps1.url);
     for (const r of feed.hosts.openclaw.releases) r.tarball.url = local(r.tarball.url);
     rewriteHermesProviderFromArtefacts(feed, dir);
+    rewriteHermesSidecarFromArtefacts(feed, dir);
     if (wslFileUrls) rewriteHermesProviderUrlsForWsl(feed);
     const valid = validateFeed(feed, { allowFile: true });
     if (!valid.ok) throw new Error(`CI feed is invalid:\n  ${valid.errors.join("\n  ")}`);

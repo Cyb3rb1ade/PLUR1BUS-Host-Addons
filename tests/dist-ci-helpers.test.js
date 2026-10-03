@@ -16,7 +16,7 @@ import { parse as parseYaml } from "yaml";
 import { assertDisposable } from "./helpers/assert-disposable.mjs";
 import { digestIds, storeDigest } from "./helpers/store-digest.mjs";
 import { assertStoreInsideStateDir, seedStore } from "./helpers/seed-store.mjs";
-import { rewriteHermesProviderUrlsForWsl, signFeedForCi, windowsFileUrlAsWsl } from "./helpers/sign-feed-for-ci.mjs";
+import { rewriteHermesProviderUrlsForWsl, rewriteHermesSidecarFromArtefacts, signFeedForCi, windowsFileUrlAsWsl } from "./helpers/sign-feed-for-ci.mjs";
 import { bootstrapEnv, isUpToDate, lastJson } from "./helpers/ci-hermes-dist.mjs";
 import { comparePins, parseShasums } from "./helpers/check-node-pins.mjs";
 import { validateFeed } from "../scripts/dist/build-plugin-feed.mjs";
@@ -306,7 +306,11 @@ describe("plugin-dist workflow", () => {
     assert.deepEqual(m.matrix.runner, ["ubuntu-24.04", "ubuntu-24.04-arm", "macos-15", "windows-2025", "windows-11-arm"]);
     assert.deepEqual(m.matrix.openclaw, ["min", "latest"]);
     assert.match(String(wf.jobs.install.if), /workflow_dispatch/);
-    assert.equal(wf.jobs.install["continue-on-error"], "${{ matrix.openclaw == 'latest' }}", "OpenClaw latest: labelled continue-on-error for the sharp/libvips capture regression");
+    assert.equal(
+      wf.jobs.install["continue-on-error"],
+      "${{ matrix.openclaw == 'latest' && (matrix.runner == 'ubuntu-24.04' || matrix.runner == 'ubuntu-24.04-arm') }}",
+      "OpenClaw latest continue-on-error is only the two Linux legs (sharp/libvips after plugin-source-capture-path.ts)",
+    );
     assert.deepEqual(wf.jobs.install.needs, "pack");
     assert.equal(wf.jobs.wsl["runs-on"], "windows-2025");
     assert.equal(wf.jobs.wsl["continue-on-error"], true);
@@ -325,6 +329,8 @@ describe("plugin-dist workflow", () => {
     const upgradeBody = wf.jobs["upgrade-from-release"].steps.find((s) => s.name === "Upgrade the release to the pack through the installer (store digest equal)");
     assert.equal(upgradeBody.if, "env.RELEASE_VERSION != needs.pack.outputs.version");
     const text = readFileSync(WORKFLOW, "utf8");
+    assert.match(text, /src\/plugins\/plugin-source-capture-path\.ts/);
+    assert.match(text, /Remove when fixed upstream or when the plugin degrades \(Part 2\)/);
     assert.match(text, /Vampire\/setup-wsl@[0-9a-f]{40} # v\d/);
     assert.ok(!/secrets\./.test(text), "the workflow uses no secrets");
     // every install leg asserts disposability right after installing OpenClaw
@@ -341,17 +347,17 @@ describe("plugin-dist Hermes legs (HM2 Task 11)", () => {
   const text = readFileSync(WORKFLOW, "utf8");
 
   it("plugin-dist.yml parses, pins every action by SHA, and every Hermes leg sets PLUR1BUS_PLUGIN_TEST_NO_SERVICE", () => {
-    for (const job of ["hermes", "hermes-wsl", "node-pins"]) assert.ok(wf.jobs[job], `job ${job}`);
-    for (const job of ["hermes", "hermes-wsl", "node-pins"]) {
+    for (const job of ["build-sidecar", "hermes", "hermes-wsl", "node-pins"]) assert.ok(wf.jobs[job], `job ${job}`);
+    for (const job of ["build-sidecar", "hermes", "hermes-wsl", "node-pins"]) {
       for (const st of wf.jobs[job].steps) if (st.uses) assert.match(st.uses, /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.\/-]+@[0-9a-f]{40}$/, `${job}: ${st.uses}`);
     }
     for (const job of ["hermes", "hermes-wsl"]) {
       assert.equal(wf.jobs[job].env.PLUR1BUS_PLUGIN_TEST_NO_SERVICE, "1", job);
       assert.equal(wf.jobs[job].env.PLUR1BUS_PLUGIN_INSTALLER_TEST, "1", job);
     }
-    // HM2-R19: required only once the sidecar release P4 exists; the WSL leg is non-blocking (C8)
-    assert.equal(wf.jobs.hermes["continue-on-error"], "${{ vars.HM2_SIDECAR_RELEASED != 'true' }}", "\"false\" counts as not released");
-    assert.equal(wf.jobs["hermes-wsl"]["continue-on-error"], true);
+    // Sidecar is built from source: Hermes legs must pass. The OpenClaw wsl leg stays C8.
+    assert.equal(wf.jobs.hermes["continue-on-error"], undefined);
+    assert.equal(wf.jobs["hermes-wsl"]["continue-on-error"], undefined);
     const m = wf.jobs.hermes.strategy;
     assert.equal(m["fail-fast"], false);
     assert.deepEqual(m.matrix.runner, ["ubuntu-24.04", "macos-15", "windows-2025"]);
@@ -387,6 +393,54 @@ describe("plugin-dist Hermes legs (HM2 Task 11)", () => {
     assert.match(wslSign.run, /--wsl-file-urls/);
     assert.match(wf.jobs["node-pins"].steps.at(-1).run, /nodejs\.org\/dist\/v\$v\/SHASUMS256\.txt/);
     assert.ok(!/secrets\./.test(text), "the workflow uses no secrets");
+    for (const job of ["hermes", "hermes-wsl"]) {
+      assert.deepEqual(wf.jobs[job].needs, ["pack", "build-sidecar"], job);
+      assert.match(String(wf.jobs[job].if), /always\(\)/);
+      assert.match(String(wf.jobs[job].if), /needs\.build-sidecar\.result == 'success'/);
+      assert.match(String(wf.jobs[job].if), /needs\.build-sidecar\.result == 'skipped'/);
+      const dl = wf.jobs[job].steps.find((s) => s.name === "Download the sidecar artefacts");
+      assert.equal(dl.if, "vars.HM2_SIDECAR_RELEASED != 'true'", job);
+      assert.equal(dl.with.pattern, "sidecar-*");
+      assert.equal(dl.with["merge-multiple"], true);
+    }
+  });
+
+  it("plugin-dist.yml builds the sidecar from harness-pin.json when HM2_SIDECAR_RELEASED is not true", () => {
+    const pin = JSON.parse(readFileSync(join(REPO, "harness-pin.json"), "utf8"));
+    const job = wf.jobs["build-sidecar"];
+    assert.match(String(job.if), /HM2_SIDECAR_RELEASED != 'true'/);
+    assert.match(String(job.if), /workflow_dispatch/);
+    assert.equal(job.strategy["fail-fast"], false);
+    assert.deepEqual(
+      job.strategy.matrix.include.map((x) => [x.target, x.runner]),
+      [
+        ["linux-x64", "ubuntu-24.04"],
+        ["linux-arm64", "ubuntu-24.04-arm"],
+        ["darwin-arm64", "macos-15"],
+        ["win-x64", "windows-2025"],
+      ],
+    );
+    const checkout = job.steps.find((s) => String(s.uses).startsWith("actions/checkout@") && s.with?.path === "harness");
+    assert.equal(checkout.with.repository, pin.repo);
+    assert.equal(checkout.with.ref, "${{ steps.harness.outputs.commit }}");
+    assert.equal(checkout.with["persist-credentials"], false);
+    const rust = job.steps.find((s) => String(s.uses).startsWith("dtolnay/rust-toolchain@"));
+    assert.equal(rust.with.toolchain, "1.95");
+    assert.ok(job.steps.some((s) => String(s.uses).startsWith("Swatinem/rust-cache@")));
+    const build = job.steps.find((s) => s.name === "Build the sidecar and core payload (TEST ONLY)");
+    assert.match(build.run, /cargo build --locked --release -p plur1bus/);
+    assert.match(build.run, /assemble-payload\.mjs --target/);
+    assert.match(build.run, /createHash\('sha256'\)/);
+    assert.doesNotMatch(build.run, /sha256sum /);
+    assert.match(build.run, /PLUR1BUS_RELEASE_BASE_URL="file:\/\/\/tmp\/plur1bus-ci-core"/);
+    assert.match(build.run, /PLUR1BUS_RELEASE_BASE_URL="file:\/\/\/D:\/a\/_temp\/plur1bus-ci-core"/);
+    assert.ok(!/scripts\/dist\/installer/.test(build.run), "the installer is not invoked to build the sidecar");
+    const place = wf.jobs.hermes.steps.find((s) => s.name === "Place the TEST-ONLY core payload where the sidecar looks");
+    assert.equal(place.if, "vars.HM2_SIDECAR_RELEASED != 'true'");
+    assert.match(place.run, /\/tmp\/plur1bus-ci-core/);
+    const wslPlace = wf.jobs["hermes-wsl"].steps.find((s) => s.name === "Place the TEST-ONLY core payload inside WSL");
+    assert.equal(wslPlace.if, "vars.HM2_SIDECAR_RELEASED != 'true'");
+    assert.match(wslPlace.run, /\/tmp\/plur1bus-ci-core/);
   });
 
   it("the CI feed carries hosts.hermes from the lock (a placeholder lock is accepted only here)", async () => {
@@ -425,11 +479,41 @@ describe("plugin-dist Hermes legs (HM2 Task 11)", () => {
     assert.throws(() => windowsFileUrlAsWsl("file:///tmp/plugin-dist/plur1bus-hermes-provider-0.1.0.tar.gz"), /not a Windows file URL/);
     assert.throws(() => windowsFileUrlAsWsl("file:///D:/a/../secret.tgz"), /not a Windows file URL/);
     const sidecarUrl = lock.binary["linux-x64"].url;
-    const wslFeed = { hosts: { hermes: { releases: [{ provider: { url: "file:///D:/a/_temp/plugin-dist/plur1bus-hermes-provider-0.1.0.tar.gz", sha256 }, sidecar: { url: sidecarUrl } }] } } };
+    const wslFeed = { hosts: { hermes: { releases: [{ provider: { url: "file:///D:/a/_temp/plugin-dist/plur1bus-hermes-provider-0.1.0.tar.gz", sha256 }, sidecar: { url: sidecarUrl, binary: { "linux-x64": { url: sidecarUrl, sha256: lock.binary["linux-x64"].sha256 } } } }] } } };
     rewriteHermesProviderUrlsForWsl(wslFeed);
     assert.equal(wslFeed.hosts.hermes.releases[0].provider.url, "file:///mnt/d/a/_temp/plugin-dist/plur1bus-hermes-provider-0.1.0.tar.gz");
     assert.equal(wslFeed.hosts.hermes.releases[0].provider.sha256, sha256);
     assert.equal(wslFeed.hosts.hermes.releases[0].sidecar.url, sidecarUrl);
+    assert.equal(wslFeed.hosts.hermes.releases[0].sidecar.binary["linux-x64"].url, sidecarUrl, "https sidecar URLs stay on the lock");
+  });
+
+  it("the CI feed rewrites hosts.hermes.sidecar.binary to built files in the artefact directory", async () => {
+    const dir = makeTempDir("ci-feed-sidecar-src-");
+    await packArtefact(dir);
+    const linux = Buffer.from("TEST ONLY linux-x64 sidecar\n");
+    const win = Buffer.from("TEST ONLY win-x64 sidecar\n");
+    writeFileSync(join(dir, "plur1bus-linux-x64"), linux);
+    writeFileSync(join(dir, "plur1bus-win-x64.exe"), win);
+    const r = await signFeedForCi({ artefacts: dir, outDir: join(dir, "feed") });
+    const feed = JSON.parse(readFileSync(r.feedFile, "utf8"));
+    const lock = JSON.parse(readFileSync(join(REPO, "scripts", "dist", "hermes-sidecar.lock.json"), "utf8"));
+    const linuxSha = createHash("sha256").update(linux).digest("hex");
+    const winSha = createHash("sha256").update(win).digest("hex");
+    assert.equal(feed.hosts.hermes.releases[0].sidecar.binary["linux-x64"].url, pathToFileURL(join(dir, "plur1bus-linux-x64")).href);
+    assert.equal(feed.hosts.hermes.releases[0].sidecar.binary["linux-x64"].sha256, linuxSha);
+    assert.equal(feed.hosts.hermes.releases[0].sidecar.binary["win-x64"].url, pathToFileURL(join(dir, "plur1bus-win-x64.exe")).href);
+    assert.equal(feed.hosts.hermes.releases[0].sidecar.binary["win-x64"].sha256, winSha);
+    assert.deepEqual(feed.hosts.hermes.releases[0].sidecar.binary["win-arm64"], lock.binary["win-arm64"], "targets without a built file stay on the lock");
+    assert.deepEqual(feed.hosts.hermes.releases[0].sidecar.binary["linux-arm64"], lock.binary["linux-arm64"]);
+    assert.deepEqual(validateFeed(feed, { allowFile: true }), { ok: true, errors: [] });
+    const wslFeed = JSON.parse(JSON.stringify(feed));
+    wslFeed.hosts.hermes.releases[0].sidecar.binary["linux-x64"].url = "file:///D:/a/_temp/plugin-dist/plur1bus-linux-x64";
+    rewriteHermesProviderUrlsForWsl(wslFeed);
+    assert.equal(wslFeed.hosts.hermes.releases[0].sidecar.binary["linux-x64"].url, "file:///mnt/d/a/_temp/plugin-dist/plur1bus-linux-x64");
+    assert.equal(wslFeed.hosts.hermes.releases[0].sidecar.binary["win-arm64"].url, lock.binary["win-arm64"].url);
+    const empty = { hosts: { hermes: { releases: [{ sidecar: { binary: JSON.parse(JSON.stringify(lock.binary)) } }] } } };
+    rewriteHermesSidecarFromArtefacts(empty, dir);
+    assert.equal(empty.hosts.hermes.releases[0].sidecar.binary["linux-x64"].sha256, linuxSha);
   });
 
   it("assert-disposable --host hermes checks HERMES_HOME and PLUR1BUS_HOME", () => {

@@ -21,8 +21,8 @@ npm test
   and modes, gateway status, CI helpers; Hermes host mode: `dist-hermes-{install,update,uninstall,feed,untar}`,
   `dist-node-pins`) and `tests/vendor-sources.test.js`. `.github/workflows/plugin-dist.yml` installs the packed plugin
   into disposable OpenClaw instances on five targets, upgrades, forces a rollback and uninstalls; its `hermes` and
-  `hermes-wsl` legs do the same against disposable Hermes instances (non-blocking until `vars.HM2_SIDECAR_RELEASED` is
-  `true`), and `node-pins` compares `scripts/dist/node-pins.json` with nodejs.org. The full suite on Linux, macOS and
+  `hermes-wsl` legs do the same against disposable Hermes instances (`build-sidecar` supplies the binaries until
+  `vars.HM2_SIDECAR_RELEASED` is `true`), and `node-pins` compares `scripts/dist/node-pins.json` with nodejs.org. The full suite on Linux, macOS and
   Windows runs in `ci.yml`.
 - The installer's test seams exist for tests only: `PLUR1BUS_PLUGIN_INSTALLER_TEST=1`
   with `PLUR1BUS_PLUGIN_FEED` `file://`, `PLUR1BUS_PLUGIN_PUBKEY`,
