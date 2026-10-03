@@ -420,7 +420,8 @@ describe("plugin-dist Hermes legs (HM2 Task 11)", () => {
     assert.deepEqual(feed.hosts.hermes.releases[0].sidecar.binary, lock.binary);
     assert.deepEqual(validateFeed(feed, { allowFile: true }), { ok: true, errors: [] });
     assert.equal(windowsFileUrlAsWsl("file:///D:/a/_temp/plugin-dist/plur1bus-hermes-provider-0.1.0.tar.gz"), "file:///mnt/d/a/_temp/plugin-dist/plur1bus-hermes-provider-0.1.0.tar.gz");
-    assert.throws(() => windowsFileUrlAsWsl(pathToFileURL(join(dir, name)).href), /not a Windows file URL/);
+    assert.throws(() => windowsFileUrlAsWsl("file:///tmp/plugin-dist/plur1bus-hermes-provider-0.1.0.tar.gz"), /not a Windows file URL/);
+    assert.throws(() => windowsFileUrlAsWsl("file:///D:/a/../secret.tgz"), /not a Windows file URL/);
     const sidecarUrl = lock.binary["linux-x64"].url;
     const wslFeed = { hosts: { hermes: { releases: [{ provider: { url: "file:///D:/a/_temp/plugin-dist/plur1bus-hermes-provider-0.1.0.tar.gz", sha256 }, sidecar: { url: sidecarUrl } }] } } };
     rewriteHermesProviderUrlsForWsl(wslFeed);
