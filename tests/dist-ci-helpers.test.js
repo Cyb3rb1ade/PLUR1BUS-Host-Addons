@@ -16,7 +16,7 @@ import { parse as parseYaml } from "yaml";
 import { assertDisposable } from "./helpers/assert-disposable.mjs";
 import { digestIds, storeDigest } from "./helpers/store-digest.mjs";
 import { assertStoreInsideStateDir, seedStore } from "./helpers/seed-store.mjs";
-import { signFeedForCi } from "./helpers/sign-feed-for-ci.mjs";
+import { rewriteHermesProviderUrlsForWsl, signFeedForCi, windowsFileUrlAsWsl } from "./helpers/sign-feed-for-ci.mjs";
 import { bootstrapEnv, isUpToDate, lastJson } from "./helpers/ci-hermes-dist.mjs";
 import { comparePins, parseShasums } from "./helpers/check-node-pins.mjs";
 import { validateFeed } from "../scripts/dist/build-plugin-feed.mjs";
@@ -379,6 +379,10 @@ describe("plugin-dist Hermes legs (HM2 Task 11)", () => {
     assert.match(text, /ci-hermes-dist\.mjs install .*--bootstrap ps1/);
     assert.match(text, /ci-hermes-dist\.mjs install .*--bootstrap sh/);
     assert.match(text, /ci-hermes-dist\.mjs wsl-install --distro Ubuntu-24.04/);
+    const nativeSign = wf.jobs.hermes.steps.find((s) => /sign-feed-for-ci\.mjs/.test(s.run ?? ""));
+    const wslSign = wf.jobs["hermes-wsl"].steps.find((s) => /sign-feed-for-ci\.mjs/.test(s.run ?? ""));
+    assert.doesNotMatch(nativeSign.run, /wsl-file-urls/);
+    assert.match(wslSign.run, /--wsl-file-urls/);
     assert.match(wf.jobs["node-pins"].steps.at(-1).run, /nodejs\.org\/dist\/v\$v\/SHASUMS256\.txt/);
     assert.ok(!/secrets\./.test(text), "the workflow uses no secrets");
   });
@@ -415,6 +419,14 @@ describe("plugin-dist Hermes legs (HM2 Task 11)", () => {
     assert.notEqual(feed.hosts.hermes.releases[0].provider.url, lock.provider.url);
     assert.deepEqual(feed.hosts.hermes.releases[0].sidecar.binary, lock.binary);
     assert.deepEqual(validateFeed(feed, { allowFile: true }), { ok: true, errors: [] });
+    assert.equal(windowsFileUrlAsWsl("file:///D:/a/_temp/plugin-dist/plur1bus-hermes-provider-0.1.0.tar.gz"), "file:///mnt/d/a/_temp/plugin-dist/plur1bus-hermes-provider-0.1.0.tar.gz");
+    assert.throws(() => windowsFileUrlAsWsl(pathToFileURL(join(dir, name)).href), /not a Windows file URL/);
+    const sidecarUrl = lock.binary["linux-x64"].url;
+    const wslFeed = { hosts: { hermes: { releases: [{ provider: { url: "file:///D:/a/_temp/plugin-dist/plur1bus-hermes-provider-0.1.0.tar.gz", sha256 }, sidecar: { url: sidecarUrl } }] } } };
+    rewriteHermesProviderUrlsForWsl(wslFeed);
+    assert.equal(wslFeed.hosts.hermes.releases[0].provider.url, "file:///mnt/d/a/_temp/plugin-dist/plur1bus-hermes-provider-0.1.0.tar.gz");
+    assert.equal(wslFeed.hosts.hermes.releases[0].provider.sha256, sha256);
+    assert.equal(wslFeed.hosts.hermes.releases[0].sidecar.url, sidecarUrl);
   });
 
   it("assert-disposable --host hermes checks HERMES_HOME and PLUR1BUS_HOME", () => {

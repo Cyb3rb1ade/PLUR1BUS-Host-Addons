@@ -3,7 +3,7 @@
  * tests/helpers/sign-feed-for-ci.mjs — a TEST ONLY signed plugin feed over local files (HM1 Task 8).
  *
  * node tests/helpers/sign-feed-for-ci.mjs --artefacts <dir> --out-dir <dir> [--tgz <extra.tgz>]... [--channel stable]
- *   [--github-env <file>] [--hermes-lock <lock.json> | --no-hermes]
+ *   [--github-env <file>] [--hermes-lock <lock.json> | --no-hermes] [--wsl-file-urls]
  *
  * HM2 Task 11: the feed also carries `hosts.hermes`, built from scripts/dist/hermes-sidecar.lock.json (or
  * --hermes-lock) with build-plugin-feed.mjs exactly as the release does. Sidecar URLs stay the lock's https
@@ -68,11 +68,31 @@ export function rewriteHermesProviderFromArtefacts(feed, dir) {
 }
 
 /**
- * @param {{ artefacts: string, outDir: string, extraTgz?: string[], channel?: string, hermesLock?: string|null }} o
+ * Node inside WSL turns `file:///D:/…` into `/D:/…` and ENOENTs. The installer stays as it is;
+ * only the TEST-ONLY feed for hermes-wsl rewrites the provider URL to `/mnt/<drive>/…`.
+ * @param {string} url
+ */
+export function windowsFileUrlAsWsl(url) {
+  const m = /^file:\/\/\/([A-Za-z]):\/(.*)$/.exec(url);
+  if (!m || m[2].split("/").includes("..")) throw new Error(`not a Windows file URL: ${url}`);
+  return `file:///mnt/${m[1].toLowerCase()}/${m[2]}`;
+}
+
+/** @param {object} feed */
+export function rewriteHermesProviderUrlsForWsl(feed) {
+  if (!feed?.hosts?.hermes?.releases) return;
+  for (const r of feed.hosts.hermes.releases) {
+    if (typeof r.provider?.url === "string" && r.provider.url.startsWith("file:")) r.provider.url = windowsFileUrlAsWsl(r.provider.url);
+  }
+}
+
+/**
+ * @param {{ artefacts: string, outDir: string, extraTgz?: string[], channel?: string, hermesLock?: string|null, wslFileUrls?: boolean }} o
  *   `hermesLock`: the lock for hosts.hermes (default scripts/dist/hermes-sidecar.lock.json); null = no hosts.hermes
+ *   `wslFileUrls`: rewrite the CI provider file:// URL for Node inside WSL (hermes-wsl only)
  * @returns {Promise<{ feedFile: string, feedUrl: string, publicKey: string, versions: string[] }>}
  */
-export async function signFeedForCi({ artefacts, outDir, extraTgz = [], channel = "stable", hermesLock = DEFAULT_HERMES_LOCK }) {
+export async function signFeedForCi({ artefacts, outDir, extraTgz = [], channel = "stable", hermesLock = DEFAULT_HERMES_LOCK, wslFileUrls = false }) {
   const dir = resolve(artefacts);
   const pack = JSON.parse(readFileSync(join(dir, "pack.json"), "utf8"));
   const byVersion = new Map();
@@ -139,6 +159,7 @@ export async function signFeedForCi({ artefacts, outDir, extraTgz = [], channel 
     feed.bootstrap.ps1.url = local(feed.bootstrap.ps1.url);
     for (const r of feed.hosts.openclaw.releases) r.tarball.url = local(r.tarball.url);
     rewriteHermesProviderFromArtefacts(feed, dir);
+    if (wslFileUrls) rewriteHermesProviderUrlsForWsl(feed);
     const valid = validateFeed(feed, { allowFile: true });
     if (!valid.ok) throw new Error(`CI feed is invalid:\n  ${valid.errors.join("\n  ")}`);
 
@@ -171,10 +192,11 @@ if (import.meta.filename && resolve(process.argv[1] ?? "") === import.meta.filen
         "github-env": { type: "string" },
         "hermes-lock": { type: "string" },
         "no-hermes": { type: "boolean", default: false },
+        "wsl-file-urls": { type: "boolean", default: false },
       },
     });
     if (!values.artefacts || !values["out-dir"]) throw new Error("--artefacts and --out-dir are required");
-    const r = await signFeedForCi({ artefacts: values.artefacts, outDir: values["out-dir"], extraTgz: values.tgz ?? [], channel: values.channel, hermesLock: values["no-hermes"] ? null : (values["hermes-lock"] ?? DEFAULT_HERMES_LOCK) });
+    const r = await signFeedForCi({ artefacts: values.artefacts, outDir: values["out-dir"], extraTgz: values.tgz ?? [], channel: values.channel, hermesLock: values["no-hermes"] ? null : (values["hermes-lock"] ?? DEFAULT_HERMES_LOCK), wslFileUrls: values["wsl-file-urls"] });
     if (values["github-env"]) appendFileSync(values["github-env"], `PLUR1BUS_PLUGIN_PUBKEY=${r.publicKey}\nPLUR1BUS_PLUGIN_FEED=${r.feedUrl}\n`);
     process.stdout.write(`${JSON.stringify({ feedUrl: r.feedUrl, publicKey: r.publicKey, versions: r.versions, hermes: r.hermes })}\n`);
   } catch (err) {

@@ -670,7 +670,8 @@ jobs:
       - name: Install Hermes min inside WSL (prefix and homes under /tmp/plur1bus-ci-hermes)
         run: node tests/helpers/ci-hermes-dist.mjs wsl-setup --distro Ubuntu-24.04 --hermes-commit 743ee72596e7a9f23bc7cd5c570a6ebd958043e4
       - name: Sign a TEST ONLY feed with hosts.hermes over the pack artefact
-        run: node tests/helpers/sign-feed-for-ci.mjs --artefacts "$RUNNER_TEMP/plugin-dist" --out-dir "$RUNNER_TEMP/hermes-feed"
+        # Node inside WSL fileURLToPath's file:///D:/… to /D:/… (run 37140347849). Installer unchanged.
+        run: node tests/helpers/sign-feed-for-ci.mjs --artefacts "$RUNNER_TEMP/plugin-dist" --out-dir "$RUNNER_TEMP/hermes-feed" --wsl-file-urls
       - name: install-plugin.ps1 -Host hermes -Target wsl:Ubuntu-24.04 --non-interactive --json
         run: node tests/helpers/ci-hermes-dist.mjs wsl-install --distro Ubuntu-24.04 --artefacts "$RUNNER_TEMP/plugin-dist" --feed-dir "$RUNNER_TEMP/hermes-feed"
       - name: Selftest inside WSL
