@@ -240,6 +240,7 @@ jobs:
           - { target: linux-arm64, runner: ubuntu-24.04-arm }
           - { target: darwin-arm64, runner: macos-15 }
           - { target: win-x64, runner: windows-2025 }
+          - { target: win-arm64, runner: windows-11-arm }
     env:
       SOURCE_DATE_EPOCH: "0"
     defaults:
@@ -308,7 +309,8 @@ jobs:
           PLUR1BUS_CORE_SHA256=$(CORE_PAYLOAD="$payload" node -e "console.log(require('crypto').createHash('sha256').update(require('fs').readFileSync(process.env.CORE_PAYLOAD)).digest('hex'))")
           export PLUR1BUS_CORE_SHA256
           # setup.rs builds {base}/core-{version}-{target}.tar.gz. Native Ubuntu/macOS and WSL share /tmp;
-          # windows-2025 GitHub-hosted runners keep RUNNER_TEMP on D:\a\_temp (hermes-wsl run 37140347849).
+          # GitHub-hosted windows-2025 and windows-11-arm keep RUNNER_TEMP on D:\a\_temp
+          # (hermes-wsl run 37140347849).
           case "$TARGET" in
             win-*) export PLUR1BUS_RELEASE_BASE_URL="file:///D:/a/_temp/plur1bus-ci-core" ;;
             *) export PLUR1BUS_RELEASE_BASE_URL="file:///tmp/plur1bus-ci-core" ;;
