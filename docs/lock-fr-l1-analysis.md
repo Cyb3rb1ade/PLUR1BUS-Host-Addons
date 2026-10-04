@@ -238,3 +238,36 @@ lands (microseconds). Two processes can still overlap in the section; they
 must not both publish. Option (i), a breaker mutex shared with Python, is
 what would keep a single holder in the critical section. That stays a later
 round, after harness PR #73.
+
+## (ii) Python side
+
+Harness [PR #77](https://github.com/Cyb3rb1ade/PLUR1BUS-Harness/pull/77) adds
+`before_replace` to `atomic_write_text` and passes `held.verify` from
+`register_binding`. The last verify sits immediately before `os.replace`, and
+again before every Windows sharing retry. `_filelock.py` is unchanged
+(Copilot, harness issue #75).
+
+This follow-up puts the Python interop worker on the same order as the Node
+worker after #6: read the counter, write the temp, `verify` immediately before
+`os.replace` (and before every Windows retry), `D` inside the hook, `W` after
+the replace. The guarded write is test-local; it does not copy `binding.py`.
+
+### Interop 3+3
+
+Local Darwin, `tests/dist-hermes-lock-interop.test.js`:
+
+| | after Node (ii), Python still verify-then-write | after Python (ii) |
+|---|---|---|
+| runs | 10 | 20 |
+| passed | 10 | 20 |
+| `lost` | 0 each run | 0 each run |
+| duration | 16.5–24.2 s | 16.3–29.0 s (limit 240 s) |
+
+No published overlap in either sample. Both takeover directions appeared in
+each 20-run after the Python worker change.
+
+### Node control loop
+
+`node tests/helpers/lock-fr-l1-loop.mjs 100 8000 1` on Darwin / Node v26.8.2,
+870 s. Overlaps 0, published overlaps 0, `checkEvents` violations 0 (E 4742,
+W 3929, L 0, D 813). The Node write path from #6 is unchanged.
