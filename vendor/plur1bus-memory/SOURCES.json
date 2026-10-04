@@ -1,6 +1,6 @@
 {
   "pluginRepo": "https://github.com/Cyb3rb1ade/openclaw-plur1bus-memory",
-  "pluginCommit": "3690fb3fc0ad7e1789afb04f5955904e4343b7d6",
+  "pluginCommit": "b46657b1a00a192fdf23ae47ae58b216d6291820",
   "files": [
     {
       "path": "lib/providers/local-model-artifacts.js",

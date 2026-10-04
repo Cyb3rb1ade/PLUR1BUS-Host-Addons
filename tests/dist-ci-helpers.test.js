@@ -308,8 +308,8 @@ describe("plugin-dist workflow", () => {
     assert.match(String(wf.jobs.install.if), /workflow_dispatch/);
     assert.equal(
       wf.jobs.install["continue-on-error"],
-      "${{ matrix.openclaw == 'latest' && (matrix.runner == 'ubuntu-24.04' || matrix.runner == 'ubuntu-24.04-arm') }}",
-      "OpenClaw latest continue-on-error is only the two Linux legs (sharp/libvips after plugin-source-capture-path.ts)",
+      undefined,
+      "OpenClaw latest is required on every runner after plugin #210",
     );
     assert.deepEqual(wf.jobs.install.needs, "pack");
     assert.equal(wf.jobs.wsl["runs-on"], "windows-2025");
@@ -329,8 +329,6 @@ describe("plugin-dist workflow", () => {
     const upgradeBody = wf.jobs["upgrade-from-release"].steps.find((s) => s.name === "Upgrade the release to the pack through the installer (store digest equal)");
     assert.equal(upgradeBody.if, "env.RELEASE_VERSION != needs.pack.outputs.version");
     const text = readFileSync(WORKFLOW, "utf8");
-    assert.match(text, /src\/plugins\/plugin-source-capture-path\.ts/);
-    assert.match(text, /Remove when fixed upstream or when the plugin degrades \(Part 2\)/);
     assert.match(text, /Vampire\/setup-wsl@[0-9a-f]{40} # v\d/);
     assert.ok(!/secrets\./.test(text), "the workflow uses no secrets");
     // every install leg asserts disposability right after installing OpenClaw

@@ -72,12 +72,11 @@ Installer installiert. Die Einträge von 0.1.0 stammen aus dem Abschnitt `[7.19.
 - `upgrade-from-release` akzeptiert `cyb3rb1ade-plur1bus-memory-*.tgz` und
   `plur1bus-*.tgz` (grep-Fallback unter `pipefail`). Liegt das Release auf
   derselben Version wie der Pin, entfällt der Upgrade-Lauf. `plugin-pin.json`
-  zeigt auf Plugin `3690fb3` (7.18.4 inkl. #207).
+  zeigt auf Plugin `b46657b` (7.18.4, #210: Vision degradiert, wenn `sharp` fehlt).
 - `hermes-wsl` schreibt die Provider-`file://`-URL im TEST-ONLY-Feed als
   `/mnt/<laufwerk>/…`, weil Node in WSL aus `file:///D:/…` den Pfad `/D:/…` macht.
-- OpenClaw `latest` in der Install-Matrix ist nur auf Linux vorübergehend
-  `continue-on-error` (OpenClaw 2026.9.8, `src/plugins/plugin-source-capture-path.ts`,
-  sharp/libvips). macOS und Windows `latest` bleiben blockierend.
+- OpenClaw `latest` in der Install-Matrix ist auf allen fünf Runnern
+  blockierend. Das WSL-Bein bleibt C8 (`continue-on-error`).
 - Der Feed erlaubt `hosts.hermes` (Schema).
 - Solange `scripts/dist/hermes-sidecar.lock.json` ein Platzhalter ist, baut
   auch ein echter Lauf den Feed ohne neues Hermes-Release und warnt in Log und
