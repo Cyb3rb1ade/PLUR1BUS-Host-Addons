@@ -58,6 +58,7 @@ tests/                   dist-*.test.js, vendor-sources.test.js, helpers/, fixtu
 docs/                    distribution.md (user and operator reference), distribution/, release-notes/, release-checklist.md
 .github/workflows/       ci.yml, plugin-dist.yml (install matrix), addons-release.yml
 plugin-pin.json          the plugin repo + commit the install matrix packs
+harness-pin.json         the harness repo + commit used to build the Hermes provider in CI when there is no release
 ```
 
 ## Test

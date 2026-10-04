@@ -23,6 +23,11 @@ on:
   schedule:
     - cron: '17 3 * * *'
   workflow_dispatch:
+    inputs:
+      only:
+        description: "After pack, run only this job (install, hermes, wsl, hermes-wsl, node-pins, upgrade-from-release, build-sidecar). Empty runs every job."
+        type: string
+        default: ""
   pull_request:
     paths:
       - 'scripts/dist/**'
@@ -30,6 +35,7 @@ on:
       - '.github/workflows/plugin-dist.yml'
       - 'package*.json'
       - 'plugin-pin.json'
+      - 'harness-pin.json'
       - 'tests/helpers/assert-disposable.mjs'
       - 'tests/helpers/seed-store.mjs'
       - 'tests/helpers/store-digest.mjs'
@@ -117,6 +123,36 @@ jobs:
             cp "$rel/$tgz" "$out/$tgz"
           fi
           echo "tgz=$tgz" >> "$GITHUB_OUTPUT"
+      # Until vars.HM2_SIDECAR_RELEASED is true there is no harness GitHub Release. The pack job
+      # builds the provider tarball from the public harness at harness-pin.json; sign-feed-for-ci
+      # rewrites only the TEST-ONLY feed's hosts.hermes.provider to that file:// artefact.
+      # Production feed and installer stay on the lock's https URLs.
+      - name: Read the harness pin
+        id: harness
+        run: |
+          set -euo pipefail
+          node -e 'const p=JSON.parse(require("fs").readFileSync("harness-pin.json","utf8")); if(p.repo!=="Cyb3rb1ade/PLUR1BUS-Harness") throw new Error("unexpected harness repo "+p.repo); if(!/^[0-9a-f]{40}$/.test(p.commit)) throw new Error("harness-pin.json commit is not a full SHA"); console.log("repo="+p.repo); console.log("commit="+p.commit)' >> "$GITHUB_OUTPUT"
+      - name: Check out the harness at the pinned commit
+        if: vars.HM2_SIDECAR_RELEASED != 'true'
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          repository: Cyb3rb1ade/PLUR1BUS-Harness
+          ref: ${{ steps.harness.outputs.commit }}
+          path: harness
+          persist-credentials: false
+      - name: Build the Hermes provider from source (TEST ONLY)
+        if: vars.HM2_SIDECAR_RELEASED != 'true'
+        run: |
+          set -euo pipefail
+          out="$RUNNER_TEMP/plugin-dist"
+          mkdir -p "$out"
+          line=$(node harness/scripts/build-hermes-provider.mjs --out "$out")
+          echo "$line"
+          name=$(printf '%s' "$line" | awk '{print $2}')
+          sum=$(printf '%s' "$line" | awk '{print $1}')
+          [ -n "$name" ] && [ -f "$out/$name" ] || { echo "::error::provider tarball was not written ($line)"; exit 1; }
+          echo "$sum  $name" | (cd "$out" && sha256sum -c -)
+          node -e 'const fs=require("fs"); const [f,name,sha]=process.argv.slice(1); fs.writeFileSync(f, JSON.stringify({provider:{file:name,sha256:sha}},null,2)+"\n")' "$out/hermes-ci.json" "$name" "$sum"
       - name: Pack the -ci.0 twin, the installer bundle and TEST ONLY bootstraps
         id: pack
         env:
@@ -182,10 +218,133 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
+  # Until vars.HM2_SIDECAR_RELEASED is true there is no harness GitHub Release. This job builds the
+  # plur1bus sidecar (and the core payload setup fetches) from the public harness at harness-pin.json,
+  # the same pin pack uses for the provider. Flags follow hermes-host.yml / harness-release.yml:
+  # rust-toolchain.toml channel 1.95, cargo build --locked --release -p plur1bus, native on each
+  # target's runner. TEST ONLY: the binary bakes PLUR1BUS_CORE_SHA256 and a file:// release base so
+  # setup can read the payload without --core-from (the installer is unchanged). Production feed
+  # and installer stay on the lock's https URLs.
+  build-sidecar:
+    name: build-sidecar (${{ matrix.target }})
+    if: >
+      vars.HM2_SIDECAR_RELEASED != 'true' &&
+      (github.event_name != 'workflow_dispatch' || inputs.only == '' || inputs.only == 'hermes' || inputs.only == 'hermes-wsl' || inputs.only == 'build-sidecar')
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { target: linux-x64, runner: ubuntu-24.04 }
+          - { target: linux-arm64, runner: ubuntu-24.04-arm }
+          - { target: darwin-arm64, runner: macos-15 }
+          - { target: win-x64, runner: windows-2025 }
+    env:
+      SOURCE_DATE_EPOCH: "0"
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Enable git long paths
+        if: runner.os == 'Windows'
+        run: git config --global core.longpaths true
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+      - name: Read the harness pin
+        id: harness
+        run: |
+          set -euo pipefail
+          node -e 'const p=JSON.parse(require("fs").readFileSync("harness-pin.json","utf8")); if(p.repo!=="Cyb3rb1ade/PLUR1BUS-Harness") throw new Error("unexpected harness repo "+p.repo); if(!/^[0-9a-f]{40}$/.test(p.commit)) throw new Error("harness-pin.json commit is not a full SHA"); console.log("repo="+p.repo); console.log("commit="+p.commit)' >> "$GITHUB_OUTPUT"
+      - name: Check out the harness at the pinned commit
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          repository: Cyb3rb1ade/PLUR1BUS-Harness
+          ref: ${{ steps.harness.outputs.commit }}
+          path: harness
+          persist-credentials: false
+      - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4.3.0
+        with:
+          version: 10.28.0
+      - name: Use Node.js 24.21.0
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '24.21.0'
+          cache: 'pnpm'
+          cache-dependency-path: harness/pnpm-lock.yaml
+      # harness rust-toolchain.toml channel 1.95
+      - uses: dtolnay/rust-toolchain@46817827a5bfabe028bf34e1cce71fd40e2ff697 # v1.95.0
+        with:
+          toolchain: "1.95"
+      - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
+        with:
+          workspaces: harness
+      - name: Build the sidecar and core payload (TEST ONLY)
+        working-directory: harness
+        env:
+          TARGET: ${{ matrix.target }}
+        run: |
+          set -euo pipefail
+          # The lockfile names the plugin as git@github.com; rewrite to HTTPS in this step only (public repo, no secret).
+          n=0
+          for from in "git@github.com:" "ssh://git@github.com/"; do
+            export "GIT_CONFIG_KEY_$n=url.https://github.com/.insteadOf" "GIT_CONFIG_VALUE_$n=$from"
+            n=$((n + 1))
+          done
+          export GIT_CONFIG_COUNT=$n
+          pnpm install --frozen-lockfile
+          pnpm gen
+          pnpm build
+          VERSION=$(awk '/^\[workspace.package\]/{p=1} p&&/^version =/{gsub(/"/,"",$3); print $3; exit}' Cargo.toml)
+          [ -n "$VERSION" ] || { echo "::error::no workspace.package version in Cargo.toml"; exit 1; }
+          out="$RUNNER_TEMP/sidecar-out"
+          mkdir -p "$out"
+          payload="$out/core-$VERSION-$TARGET.tar.gz"
+          node scripts/release/assemble-payload.mjs --target "$TARGET" --out "$payload"
+          # node, not sha256sum: macOS runners have shasum, not GNU sha256sum.
+          # Node 24+ puts -e extra args at argv[1] (no "[eval]" placeholder), so pass the path via env.
+          [ -f "$payload" ] || { echo "::error::missing core payload $payload"; exit 1; }
+          PLUR1BUS_CORE_SHA256=$(CORE_PAYLOAD="$payload" node -e "console.log(require('crypto').createHash('sha256').update(require('fs').readFileSync(process.env.CORE_PAYLOAD)).digest('hex'))")
+          export PLUR1BUS_CORE_SHA256
+          # setup.rs builds {base}/core-{version}-{target}.tar.gz. Native Ubuntu/macOS and WSL share /tmp;
+          # windows-2025 GitHub-hosted runners keep RUNNER_TEMP on D:\a\_temp (hermes-wsl run 37140347849).
+          case "$TARGET" in
+            win-*) export PLUR1BUS_RELEASE_BASE_URL="file:///D:/a/_temp/plur1bus-ci-core" ;;
+            *) export PLUR1BUS_RELEASE_BASE_URL="file:///tmp/plur1bus-ci-core" ;;
+          esac
+          cargo build --locked --release -p plur1bus
+          ext=""; case "$TARGET" in win-*) ext=".exe" ;; esac
+          cp "target/release/plur1bus$ext" "$out/plur1bus-$TARGET$ext"
+          chmod +x "$out/plur1bus-$TARGET$ext" || true
+          "$out/plur1bus-$TARGET$ext" --version
+          {
+            echo "### build-sidecar $TARGET"
+            echo ""
+            echo "| | |"
+            echo "|---|---|"
+            echo "| harness | \`${{ steps.harness.outputs.repo }}\` @ \`${{ steps.harness.outputs.commit }}\` |"
+            echo "| sidecar | \`plur1bus-$TARGET$ext\` |"
+            echo "| core | \`core-$VERSION-$TARGET.tar.gz\` (\`$PLUR1BUS_CORE_SHA256\`) |"
+          } >> "$GITHUB_STEP_SUMMARY"
+      - name: Upload the sidecar artefact
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: sidecar-${{ matrix.target }}
+          path: ${{ runner.temp }}/sidecar-out/
+          if-no-files-found: error
+          retention-days: 7
+
   install:
     name: install (${{ matrix.runner }}, OpenClaw ${{ matrix.openclaw }})
     needs: pack
+    if: github.event_name != 'workflow_dispatch' || inputs.only == '' || inputs.only == 'install'
     runs-on: ${{ matrix.runner }}
+    # OpenClaw 2026.9.8 copies the plugin into openclaw-plugin-build-*
+    # (src/plugins/plugin-source-capture-path.ts) and then loads sharp from that tree. On Linux the
+    # optional libvips package is missing (ERR_DLOPEN_FAILED: libvips-cpp.so.8.17.3). macOS and
+    # Windows latest stay blocking. Remove when fixed upstream or when the plugin degrades (Part 2).
+    continue-on-error: ${{ matrix.openclaw == 'latest' && (matrix.runner == 'ubuntu-24.04' || matrix.runner == 'ubuntu-24.04-arm') }}
     timeout-minutes: 150
     strategy:
       fail-fast: false
@@ -306,6 +465,7 @@ jobs:
   wsl:
     name: wsl (windows-2025, Ubuntu-24.04, OpenClaw latest)
     needs: pack
+    if: github.event_name != 'workflow_dispatch' || inputs.only == '' || inputs.only == 'wsl'
     runs-on: windows-2025
     continue-on-error: true
     timeout-minutes: 120
@@ -358,7 +518,7 @@ jobs:
   upgrade-from-release:
     name: upgrade-from-release (nightly)
     needs: pack
-    if: github.event_name == 'schedule'
+    if: github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && (inputs.only == '' || inputs.only == 'upgrade-from-release'))
     runs-on: ubuntu-24.04
     continue-on-error: true
     timeout-minutes: 120
@@ -391,9 +551,16 @@ jobs:
           set -euo pipefail
           tag=$(gh release view --repo "$PLUGIN_REPO" --json tagName -q .tagName)
           mkdir -p "$RUNNER_TEMP/release"
-          gh release download "$tag" --repo "$PLUGIN_REPO" --pattern 'cyb3rb1ade-plur1bus-memory-*.tgz' --dir "$RUNNER_TEMP/release"
-          f=$(find "$RUNNER_TEMP/release" -maxdepth 1 -name 'cyb3rb1ade-plur1bus-memory-*.tgz' | sort | head -n 1)
-          [ -n "$f" ] || { echo "release $tag has no cyb3rb1ade-plur1bus-memory-*.tgz asset" >&2; exit 1; }
+          names=$(gh release view "$tag" --repo "$PLUGIN_REPO" --json assets --jq '.assets[].name')
+          # grep exits 1 when the preferred npm-pack name is absent; keep going under pipefail.
+          pick=$(printf '%s\n' "$names" | { grep -E '^cyb3rb1ade-plur1bus-memory-.+\.tgz$' || true; } | sort | head -n 1)
+          if [ -z "$pick" ]; then
+            pick=$(printf '%s\n' "$names" | { grep -E '^plur1bus-.+\.tgz$' || true; } | sort | head -n 1)
+          fi
+          [ -n "$pick" ] || { echo "::error::release $tag has neither cyb3rb1ade-plur1bus-memory-*.tgz nor plur1bus-*.tgz" >&2; printf '%s\n' "$names" >&2; exit 1; }
+          gh release download "$tag" --repo "$PLUGIN_REPO" --pattern "$pick" --dir "$RUNNER_TEMP/release"
+          f="$RUNNER_TEMP/release/$pick"
+          [ -f "$f" ] || { echo "::error::downloaded $pick is missing" >&2; exit 1; }
           rv=$(node --input-type=module -e 'import { readFileSync } from "node:fs"; import { readPackageJsonFromTgz } from "./scripts/dist/build-plugin-feed.mjs"; process.stdout.write(readPackageJsonFromTgz(readFileSync(process.argv[1])).version)' "$f")
           { echo "RELEASE_TGZ=$f"; echo "RELEASE_VERSION=$rv"; } >> "$GITHUB_ENV"
           printf '### upgrade-from-release: %s (%s) → pack %s\n\n' "$tag" "$rv" "${{ needs.pack.outputs.version }}" >> "$GITHUB_STEP_SUMMARY"
@@ -422,10 +589,17 @@ jobs:
           path: ${{ runner.temp }}/oc-home/models/plur1bus
           key: e5-614241f6-${{ runner.os }}-${{ runner.arch }}
       - name: Sign a TEST ONLY feed over the release and the pack
+        if: env.RELEASE_VERSION != needs.pack.outputs.version
         run: node tests/helpers/sign-feed-for-ci.mjs --artefacts "$RUNNER_TEMP/plugin-dist" --tgz "$RELEASE_TGZ" --out-dir "$OC_FEED_DIR"
       # The release predates `plur1bus selftest`, so it is installed raw and the forced-failure rollback (whose verify
       # runs the old version's selftest) is skipped; the upgrade itself goes through install-plugin.sh --update.
+      # Pin 3690fb3 is 7.18.4, the same version as the newest GitHub Release, so there is no older tarball to
+      # upgrade from. The download step above still has to accept the asset name.
+      - name: Nothing to upgrade when the release version is the pack
+        if: env.RELEASE_VERSION == needs.pack.outputs.version
+        run: printf 'release %s is already the packed pin; the asset name matched, the upgrade body is skipped\n' "$RELEASE_VERSION" >> "$GITHUB_STEP_SUMMARY"
       - name: Upgrade the release to the pack through the installer (store digest equal)
+        if: env.RELEASE_VERSION != needs.pack.outputs.version
         run: node tests/helpers/ci-plugin-dist.mjs installer --artefacts "$RUNNER_TEMP/plugin-dist" --feed-dir "$OC_FEED_DIR" --bootstrap sh --from raw --from-tgz "$RELEASE_TGZ" --skip-forced-failure
       - name: ClawHub install record vs the GitHub Release tarball (fact k, informational)
         continue-on-error: true
@@ -435,14 +609,19 @@ jobs:
   # pinned sidecar into a disposable Hermes on three OSes, min (743ee72 = 0.21.4) and latest (tested, f97608f =
   # 0.21.5). Hermes comes from that commit's own installer (harness hermes-host.yml, fact sheet §1), under
   # $RUNNER_TEMP: HERMES_HOME, PLUR1BUS_HOME, and HOME/XDG on POSIX. setup runs with --no-service
-  # (PLUR1BUS_PLUGIN_TEST_NO_SERVICE=1) and the flat-embedder seam (no model download, F21). The sidecar and provider
-  # artefacts are the harness release P4 named by scripts/dist/hermes-sidecar.lock.json: until it is released (and
-  # vars.HM2_SIDECAR_RELEASED is 'true') the lock is a placeholder and these legs cannot pass, hence continue-on-error.
+  # (PLUR1BUS_PLUGIN_TEST_NO_SERVICE=1) and the flat-embedder seam (no model download, F21). Until
+  # vars.HM2_SIDECAR_RELEASED is 'true' there is no harness GitHub Release: pack builds the provider and
+  # build-sidecar builds the binaries from harness-pin.json; the TEST-ONLY feed serves both over file://.
+  # The production installer is unchanged.
   hermes:
     name: hermes (${{ matrix.runner }}, Hermes ${{ matrix.hermes }})
-    needs: pack
+    needs: [pack, build-sidecar]
+    if: >
+      always() &&
+      needs.pack.result == 'success' &&
+      (needs.build-sidecar.result == 'success' || needs.build-sidecar.result == 'skipped') &&
+      (github.event_name != 'workflow_dispatch' || inputs.only == '' || inputs.only == 'hermes')
     runs-on: ${{ matrix.runner }}
-    continue-on-error: ${{ vars.HM2_SIDECAR_RELEASED != 'true' }}
     timeout-minutes: 90
     strategy:
       fail-fast: false
@@ -479,6 +658,32 @@ jobs:
         with:
           name: ${{ needs.pack.outputs.artifact }}
           path: ${{ runner.temp }}/plugin-dist
+      - name: Download the sidecar artefacts
+        if: vars.HM2_SIDECAR_RELEASED != 'true'
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          pattern: sidecar-*
+          path: ${{ runner.temp }}/plugin-dist
+          merge-multiple: true
+      - name: Place the TEST-ONLY core payload where the sidecar looks
+        if: vars.HM2_SIDECAR_RELEASED != 'true'
+        run: |
+          set -euo pipefail
+          case "$RUNNER_OS-$RUNNER_ARCH" in
+            Linux-X64) t=linux-x64; dest=/tmp/plur1bus-ci-core ;;
+            Linux-ARM64) t=linux-arm64; dest=/tmp/plur1bus-ci-core ;;
+            macOS-ARM64) t=darwin-arm64; dest=/tmp/plur1bus-ci-core ;;
+            Windows-X64) t=win-x64; dest=/d/a/_temp/plur1bus-ci-core ;;
+            *) echo "::error::no sidecar target for $RUNNER_OS-$RUNNER_ARCH"; exit 1 ;;
+          esac
+          # find, not bash glob: Windows Git Bash RUNNER_TEMP is D:\a\_temp, and those
+          # backslashes swallow the * (hermes windows, run 37160050174).
+          dir="$RUNNER_TEMP/plugin-dist"
+          if command -v cygpath >/dev/null 2>&1; then dir=$(cygpath -u "$dir"); fi
+          src=$(find "$dir" -maxdepth 1 -type f -name "core-*-$t.tar.gz" | head -n 1)
+          [ -n "$src" ] && [ -f "$src" ] || { echo "::error::missing core payload for $t"; ls -l "$dir"; exit 1; }
+          mkdir -p "$dest"
+          cp "$src" "$dest/"
       - name: Disposable Hermes locations
         run: |
           {
@@ -579,9 +784,13 @@ jobs:
   # install-plugin.ps1 -Host hermes -Target wsl:Ubuntu-24.04; the distro's own run verifies the feed again.
   hermes-wsl:
     name: hermes-wsl (windows-2025, Ubuntu-24.04, Hermes min)
-    needs: pack
+    needs: [pack, build-sidecar]
+    if: >
+      always() &&
+      needs.pack.result == 'success' &&
+      (needs.build-sidecar.result == 'success' || needs.build-sidecar.result == 'skipped') &&
+      (github.event_name != 'workflow_dispatch' || inputs.only == '' || inputs.only == 'hermes-wsl')
     runs-on: windows-2025
-    continue-on-error: true
     timeout-minutes: 120
     env:
       PLUR1BUS_PLUGIN_INSTALLER_TEST: '1'
@@ -604,6 +813,13 @@ jobs:
         with:
           name: ${{ needs.pack.outputs.artifact }}
           path: ${{ runner.temp }}/plugin-dist
+      - name: Download the sidecar artefacts
+        if: vars.HM2_SIDECAR_RELEASED != 'true'
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          pattern: sidecar-*
+          path: ${{ runner.temp }}/plugin-dist
+          merge-multiple: true
       - name: The WSL leg runs on GitHub-hosted runners only
         if: runner.environment != 'github-hosted'
         run: |
@@ -617,8 +833,25 @@ jobs:
           additional-packages: curl ca-certificates git
       - name: Install Hermes min inside WSL (prefix and homes under /tmp/plur1bus-ci-hermes)
         run: node tests/helpers/ci-hermes-dist.mjs wsl-setup --distro Ubuntu-24.04 --hermes-commit 743ee72596e7a9f23bc7cd5c570a6ebd958043e4
+      - name: Place the TEST-ONLY core payload inside WSL
+        if: vars.HM2_SIDECAR_RELEASED != 'true'
+        run: |
+          set -euo pipefail
+          # Same Windows Git Bash glob trap as the native hermes place step (run 37160050174).
+          dir="$RUNNER_TEMP/plugin-dist"
+          if command -v cygpath >/dev/null 2>&1; then dir=$(cygpath -u "$dir"); fi
+          src=$(find "$dir" -maxdepth 1 -type f -name "core-*-linux-x64.tar.gz" | head -n 1)
+          [ -n "$src" ] && [ -f "$src" ] || { echo "::error::missing linux-x64 core payload"; ls -l "$dir"; exit 1; }
+          case "$src" in
+            /[A-Za-z]/*) wsl_src="/mnt/${src#/}" ;;
+            *) echo "::error::cannot map $src into WSL"; exit 1 ;;
+          esac
+          # Git Bash strips backslashes when it invokes wsl.exe (run 37163663114: wslpath printed
+          # D:a_tempplugin-dist...). Copy via /mnt/<drive>/... with path conversion off.
+          MSYS_NO_PATHCONV=1 wsl -d Ubuntu-24.04 -- bash -lc "mkdir -p /tmp/plur1bus-ci-core && cp '$wsl_src' /tmp/plur1bus-ci-core/"
       - name: Sign a TEST ONLY feed with hosts.hermes over the pack artefact
-        run: node tests/helpers/sign-feed-for-ci.mjs --artefacts "$RUNNER_TEMP/plugin-dist" --out-dir "$RUNNER_TEMP/hermes-feed"
+        # Node inside WSL fileURLToPath's file:///D:/… to /D:/… (run 37140347849). Installer unchanged.
+        run: node tests/helpers/sign-feed-for-ci.mjs --artefacts "$RUNNER_TEMP/plugin-dist" --out-dir "$RUNNER_TEMP/hermes-feed" --wsl-file-urls
       - name: install-plugin.ps1 -Host hermes -Target wsl:Ubuntu-24.04 --non-interactive --json
         run: node tests/helpers/ci-hermes-dist.mjs wsl-install --distro Ubuntu-24.04 --artefacts "$RUNNER_TEMP/plugin-dist" --feed-dir "$RUNNER_TEMP/hermes-feed"
       - name: Selftest inside WSL
@@ -628,6 +861,7 @@ jobs:
   # sidecar lock's Node version.
   node-pins:
     name: node-pins (nodejs.org SHASUMS256.txt)
+    if: github.event_name != 'workflow_dispatch' || inputs.only == '' || inputs.only == 'node-pins'
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:

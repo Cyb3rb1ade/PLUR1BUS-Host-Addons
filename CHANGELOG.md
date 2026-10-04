@@ -34,8 +34,8 @@ Installer installiert. Die Einträge von 0.1.0 stammen aus dem Abschnitt `[7.19.
   Node 24.21.0 (`scripts/dist/node-pins.json`; der Renderer verlangt
   `--node-pins`).
 - **plugin-dist.yml**: Hermes-Beine auf drei Betriebssystemen (min/latest), ein
-  WSL-Bein und ein Abgleich der Node-Pins mit nodejs.org; bis zum
-  Harness-Release P4 nicht blockierend.
+  WSL-Bein und ein Abgleich der Node-Pins mit nodejs.org. Ohne Harness-Release
+  P4 baut `build-sidecar` die Binaries aus dem Pin.
 - **Ein-Zeilen-Installer** `install-plugin.sh` (Linux, macOS) und
   `install-plugin.ps1` (Windows nativ, Beta; WSL2 über Delegation an das
   Linux-Skript). Die Bootstraps verifizieren den signierten Plugin-Feed
@@ -63,6 +63,19 @@ Installer installiert. Die Einträge von 0.1.0 stammen aus dem Abschnitt `[7.19.
 
 ### Geändert
 
+- `plugin-dist.yml` baut den Hermes-Provider und die Sidecar-Binaries aus dem Harness-Commit
+  in `harness-pin.json`, solange `HM2_SIDECAR_RELEASED` nicht `true` ist. Das TEST-ONLY-CI-Feed
+  zeigt per `file://` und SHA-256 auf diese Artefakte. Der Produktions-Feed und der Installer
+  bleiben unverändert. Die Hermes-Jobs sind damit blockierend.
+- `upgrade-from-release` akzeptiert `cyb3rb1ade-plur1bus-memory-*.tgz` und
+  `plur1bus-*.tgz` (grep-Fallback unter `pipefail`). Liegt das Release auf
+  derselben Version wie der Pin, entfällt der Upgrade-Lauf. `plugin-pin.json`
+  zeigt auf Plugin `3690fb3` (7.18.4 inkl. #207).
+- `hermes-wsl` schreibt die Provider-`file://`-URL im TEST-ONLY-Feed als
+  `/mnt/<laufwerk>/…`, weil Node in WSL aus `file:///D:/…` den Pfad `/D:/…` macht.
+- OpenClaw `latest` in der Install-Matrix ist nur auf Linux vorübergehend
+  `continue-on-error` (OpenClaw 2026.9.8, `src/plugins/plugin-source-capture-path.ts`,
+  sharp/libvips). macOS und Windows `latest` bleiben blockierend.
 - Der Feed erlaubt `hosts.hermes` (Schema).
 - Solange `scripts/dist/hermes-sidecar.lock.json` ein Platzhalter ist, baut
   auch ein echter Lauf den Feed ohne neues Hermes-Release und warnt in Log und

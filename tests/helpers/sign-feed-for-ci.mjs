@@ -3,13 +3,15 @@
  * tests/helpers/sign-feed-for-ci.mjs — a TEST ONLY signed plugin feed over local files (HM1 Task 8).
  *
  * node tests/helpers/sign-feed-for-ci.mjs --artefacts <dir> --out-dir <dir> [--tgz <extra.tgz>]... [--channel stable]
- *   [--github-env <file>] [--hermes-lock <lock.json> | --no-hermes]
+ *   [--github-env <file>] [--hermes-lock <lock.json> | --no-hermes] [--wsl-file-urls]
  *
  * HM2 Task 11: the feed also carries `hosts.hermes`, built from scripts/dist/hermes-sidecar.lock.json (or
- * --hermes-lock) with build-plugin-feed.mjs exactly as the release does. Its provider and sidecar URLs stay the
- * harness release's https URLs (the installer verifies them by SHA-256). A lock still marked `"placeholder": true`
- * is accepted here only (TEST ONLY feed): until the harness release P4 fills it, the Hermes legs fail at the first
- * download, which is why they are continue-on-error (HM2-R19).
+ * --hermes-lock) with build-plugin-feed.mjs exactly as the release does. When the pack artefact contains
+ * `hermes-ci.json` (CI built the provider from harness-pin.json because HM2_SIDECAR_RELEASED is not true),
+ * the provider URL is replaced by the local file:// artefact and its real SHA-256. Sidecar binaries named
+ * `plur1bus-<target>[.exe]` in the same directory (build-sidecar) replace the lock's https URLs the same way.
+ * Production feeds never take this path. A lock still marked `"placeholder": true` is accepted here only
+ * (TEST ONLY feed).
  *
  * <artefacts> is the plugin-dist `pack` artefact: pack.json ({ version, ciVersion, tgz, ciTgz }), the tarballs it
  * names, plur1bus-plugin-installer.mjs, install-plugin.sh and install-plugin.ps1. Every tarball (the pack's two plus
@@ -24,7 +26,8 @@
  * Prints { feedUrl, publicKey, versions } as one JSON line; exit 0, or 1 with the reason on stderr.
  */
 
-import { appendFileSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { createHash } from "node:crypto";
+import { appendFileSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -38,12 +41,105 @@ const PLACEHOLDER = "https://ci.invalid/TEST-ONLY/";
 const NOTES = { de: "TEST ONLY: CI-Feed des plugin-dist-Workflows.\n", en: "TEST ONLY: feed of the plugin-dist workflow.\n" };
 export const DEFAULT_HERMES_LOCK = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..", "scripts", "dist", "hermes-sidecar.lock.json");
 
+/** Basenames `build-sidecar` uploads; a missing file leaves that target on the lock's https URL. */
+export const HERMES_SIDECAR_FILES = Object.freeze({
+  "linux-x64": "plur1bus-linux-x64",
+  "linux-arm64": "plur1bus-linux-arm64",
+  "darwin-arm64": "plur1bus-darwin-arm64",
+  "win-x64": "plur1bus-win-x64.exe",
+  "win-arm64": "plur1bus-win-arm64.exe",
+});
+
+function assertArtefactBasename(name, what) {
+  if (typeof name !== "string" || name.includes("/") || name.includes("\\") || name.includes("..")) {
+    throw new Error(`${what} is missing or not a basename`);
+  }
+  return name;
+}
+
 /**
- * @param {{ artefacts: string, outDir: string, extraTgz?: string[], channel?: string, hermesLock?: string|null }} o
+ * When the pack artefact includes hermes-ci.json (CI built the provider from harness source), point
+ * hosts.hermes.provider at that local tarball.
+ * @param {object} feed
+ * @param {string} dir pack artefact directory
+ */
+export function rewriteHermesProviderFromArtefacts(feed, dir) {
+  const ciPath = join(dir, "hermes-ci.json");
+  if (!existsSync(ciPath) || !feed?.hosts?.hermes?.releases) return;
+  const ci = JSON.parse(readFileSync(ciPath, "utf8"));
+  const name = assertArtefactBasename(ci?.provider?.file, "hermes-ci.json provider.file");
+  const file = join(dir, name);
+  if (!existsSync(file)) throw new Error(`hermes-ci.json names ${name}, which is not in the pack artefact`);
+  const sha256 = createHash("sha256").update(readFileSync(file)).digest("hex");
+  if (ci.provider.sha256 && ci.provider.sha256 !== sha256) {
+    throw new Error(`hermes-ci.json sha256 does not match ${name}`);
+  }
+  const url = pathToFileURL(file).href;
+  for (const r of feed.hosts.hermes.releases) {
+    r.provider.url = url;
+    r.provider.sha256 = sha256;
+  }
+}
+
+/**
+ * When build-sidecar left `plur1bus-<target>[.exe]` in the artefact directory, point
+ * hosts.hermes.sidecar.binary[target] at that local file. Missing targets stay on the lock.
+ * @param {object} feed
+ * @param {string} dir pack / sidecar artefact directory
+ */
+export function rewriteHermesSidecarFromArtefacts(feed, dir) {
+  if (!feed?.hosts?.hermes?.releases) return;
+  const found = {};
+  for (const [target, name] of Object.entries(HERMES_SIDECAR_FILES)) {
+    assertArtefactBasename(name, `sidecar basename for ${target}`);
+    const file = join(dir, name);
+    if (!existsSync(file)) continue;
+    found[target] = { url: pathToFileURL(file).href, sha256: createHash("sha256").update(readFileSync(file)).digest("hex") };
+  }
+  if (Object.keys(found).length === 0) return;
+  for (const r of feed.hosts.hermes.releases) {
+    if (!r.sidecar?.binary) continue;
+    for (const [target, art] of Object.entries(found)) {
+      if (r.sidecar.binary[target]) Object.assign(r.sidecar.binary[target], art);
+    }
+  }
+}
+
+/**
+ * Node inside WSL turns `file:///D:/…` into `/D:/…` and ENOENTs. The installer stays as it is;
+ * only the TEST-ONLY feed for hermes-wsl rewrites provider and sidecar file:// URLs to `/mnt/<drive>/…`.
+ * @param {string} url
+ */
+export function windowsFileUrlAsWsl(url) {
+  const m = /^file:\/\/\/([A-Za-z]):\/(.*)$/.exec(url);
+  if (!m || m[2].split("/").includes("..")) throw new Error(`not a Windows file URL: ${url}`);
+  return `file:///mnt/${m[1].toLowerCase()}/${m[2]}`;
+}
+
+/** @param {object} feed */
+function rewriteFileUrlForWsl(url) {
+  return typeof url === "string" && /^file:\/\/\/[A-Za-z]:\//.test(url) ? windowsFileUrlAsWsl(url) : url;
+}
+
+export function rewriteHermesProviderUrlsForWsl(feed) {
+  if (!feed?.hosts?.hermes?.releases) return;
+  for (const r of feed.hosts.hermes.releases) {
+    if (r.provider) r.provider.url = rewriteFileUrlForWsl(r.provider.url);
+    const bins = r.sidecar?.binary;
+    if (!bins) continue;
+    for (const t of Object.keys(bins)) {
+      if (bins[t]) bins[t].url = rewriteFileUrlForWsl(bins[t].url);
+    }
+  }
+}
+
+/**
+ * @param {{ artefacts: string, outDir: string, extraTgz?: string[], channel?: string, hermesLock?: string|null, wslFileUrls?: boolean }} o
  *   `hermesLock`: the lock for hosts.hermes (default scripts/dist/hermes-sidecar.lock.json); null = no hosts.hermes
+ *   `wslFileUrls`: rewrite CI provider and sidecar file:// URLs for Node inside WSL (hermes-wsl only)
  * @returns {Promise<{ feedFile: string, feedUrl: string, publicKey: string, versions: string[] }>}
  */
-export async function signFeedForCi({ artefacts, outDir, extraTgz = [], channel = "stable", hermesLock = DEFAULT_HERMES_LOCK }) {
+export async function signFeedForCi({ artefacts, outDir, extraTgz = [], channel = "stable", hermesLock = DEFAULT_HERMES_LOCK, wslFileUrls = false }) {
   const dir = resolve(artefacts);
   const pack = JSON.parse(readFileSync(join(dir, "pack.json"), "utf8"));
   const byVersion = new Map();
@@ -109,6 +205,9 @@ export async function signFeedForCi({ artefacts, outDir, extraTgz = [], channel 
     feed.bootstrap.sh.url = local(feed.bootstrap.sh.url);
     feed.bootstrap.ps1.url = local(feed.bootstrap.ps1.url);
     for (const r of feed.hosts.openclaw.releases) r.tarball.url = local(r.tarball.url);
+    rewriteHermesProviderFromArtefacts(feed, dir);
+    rewriteHermesSidecarFromArtefacts(feed, dir);
+    if (wslFileUrls) rewriteHermesProviderUrlsForWsl(feed);
     const valid = validateFeed(feed, { allowFile: true });
     if (!valid.ok) throw new Error(`CI feed is invalid:\n  ${valid.errors.join("\n  ")}`);
 
@@ -141,10 +240,11 @@ if (import.meta.filename && resolve(process.argv[1] ?? "") === import.meta.filen
         "github-env": { type: "string" },
         "hermes-lock": { type: "string" },
         "no-hermes": { type: "boolean", default: false },
+        "wsl-file-urls": { type: "boolean", default: false },
       },
     });
     if (!values.artefacts || !values["out-dir"]) throw new Error("--artefacts and --out-dir are required");
-    const r = await signFeedForCi({ artefacts: values.artefacts, outDir: values["out-dir"], extraTgz: values.tgz ?? [], channel: values.channel, hermesLock: values["no-hermes"] ? null : (values["hermes-lock"] ?? DEFAULT_HERMES_LOCK) });
+    const r = await signFeedForCi({ artefacts: values.artefacts, outDir: values["out-dir"], extraTgz: values.tgz ?? [], channel: values.channel, hermesLock: values["no-hermes"] ? null : (values["hermes-lock"] ?? DEFAULT_HERMES_LOCK), wslFileUrls: values["wsl-file-urls"] });
     if (values["github-env"]) appendFileSync(values["github-env"], `PLUR1BUS_PLUGIN_PUBKEY=${r.publicKey}\nPLUR1BUS_PLUGIN_FEED=${r.feedUrl}\n`);
     process.stdout.write(`${JSON.stringify({ feedUrl: r.feedUrl, publicKey: r.publicKey, versions: r.versions, hermes: r.hermes })}\n`);
   } catch (err) {
