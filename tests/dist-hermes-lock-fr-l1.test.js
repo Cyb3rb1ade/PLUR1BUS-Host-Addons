@@ -1,14 +1,14 @@
-// tests/dist-hermes-lock-fr-l1.test.js — characterisation of the bindings-registry
-// verify-then-write window (docs/lock-fr-l1-analysis.md). Does not change the lock
-// protocol. The existing FR-L1 contention and put-back tests stay as they are.
+// tests/dist-hermes-lock-fr-l1.test.js — FR-L1 option (ii): a displaced holder refuses the
+// publishing rename (docs/lock-fr-l1-analysis.md). Does not change the lock protocol. The
+// existing FR-L1 contention and put-back tests stay as they are.
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
-import { existsSync, linkSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, linkSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
-import { REGISTRY_LOCK_FILE, RegistryLockLost, withRegistryLock } from "../scripts/dist/installer/hermes/binding.mjs";
+import { REGISTRY_LOCK_FILE, REGISTRY_SCHEMA, RegistryLockLost, registryPath, withRegistryLock, writeRegistry } from "../scripts/dist/installer/hermes/binding.mjs";
 import { checkEvents } from "./helpers/lock-events.mjs";
 import { makeTempDir } from "./helpers/temp-dir.js";
 
@@ -17,13 +17,15 @@ const BINDING = pathToFileURL(join(HERE, "..", "scripts", "dist", "installer", "
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 describe("FR-L1 overlap characterisation (docs/lock-fr-l1-analysis.md)", () => {
-  it("a holder that already passed assertHeld can still write after a newcomer entered (verify-then-write window)", async () => {
-    // Same waiter-rename as the put-back-window test in dist-hermes-install.test.js, with the
-    // worker's order: assertHeld, then the write (registry-lock-worker.mjs sleeps 3 ms between
-    // them). The existing test calls assertHeld after the newcomer is inside and expects L.
-    // This one verifies first, then lets the newcomer in, then writes without checking again.
+  it("a displaced holder refuses the publishing rename and does not write (FR-L1 option ii)", async () => {
+    // Same waiter-rename as the put-back-window test in dist-hermes-install.test.js: the holder
+    // prepares, a waiter moves the live lock aside, a third process enters and writes, then the
+    // holder publishes through writeRegistry (temp + fsync, assertHeld, rename). The last verify
+    // must throw RegistryLockLost; nothing is published.
     const ph = makeTempDir("hermes-lock-toctou-");
     const lock = join(ph, "hosts", REGISTRY_LOCK_FILE);
+    const registry = registryPath(ph);
+    const original = `${JSON.stringify({ schema: REGISTRY_SCHEMA, bindings: { keep: "/old" } }, null, 2)}\n`;
     const events = join(ph, "events.log");
     const log = (kind, id) => writeFileSync(events, `${kind} ${id} 1 ${Date.now()}\n`, { flag: "a" });
     const release = join(ph, "release");
@@ -40,7 +42,7 @@ withRegistryLock(${JSON.stringify(ph)}, ({ assertHeld }) => {
     let thirdExit;
     await withRegistryLock(ph, async ({ assertHeld }) => {
       log("E", "holder");
-      assertHeld();
+      writeFileSync(registry, original);
       const moved = `${lock}.break-${"e".repeat(32)}`;
       renameSync(lock, moved);
       const c = spawn(process.execPath, ["--input-type=module", "-e", third], { stdio: ["ignore", "ignore", "inherit"] });
@@ -49,17 +51,22 @@ withRegistryLock(${JSON.stringify(ph)}, ({ assertHeld }) => {
       assert.ok(readFileSync(events, "utf8").includes("W third"), "the third process is inside and wrote");
       assert.throws(() => linkSync(moved, lock), (e) => e.code === "EEXIST", "the put-back finds the newcomer's lock");
       rmSync(moved);
-      log("W", "holder");
+      assert.throws(
+        () => writeRegistry(ph, { "holder-agent": "/tmp/holder-home" }, assertHeld),
+        (e) => e instanceof RegistryLockLost && e.code === "LOCK_LOST",
+      );
+      log("L", "holder");
       log("X", "holder");
       writeFileSync(release, "");
       await thirdExit;
     });
+    assert.equal(readFileSync(registry, "utf8"), original, "displaced holder did not publish");
+    assert.deepEqual(readdirSync(join(ph, "hosts")).filter((n) => n.includes(".tmp-")), []);
     const lines = readFileSync(events, "utf8").split("\n").filter(Boolean);
     const { violations, overlaps } = checkEvents(lines);
+    assert.deepEqual(violations, [], lines.join("\n"));
     assert.equal(overlaps.length, 1, lines.join("\n"));
-    assert.equal(overlaps[0].refused, false, "the displaced holder did not refuse");
-    assert.ok(violations.some((v) => v.includes("wrote although a newcomer entered after it")), violations.join("\n"));
-    assert.ok(violations.some((v) => v.includes("its verify did not refuse")), violations.join("\n"));
+    assert.equal(overlaps[0].refused, true, "the displaced holder refused");
   });
 
   it("a live holder whose lock is younger than 60 s is not judged stale after 1 s (dead-pid rule)", { timeout: 15_000 }, async () => {

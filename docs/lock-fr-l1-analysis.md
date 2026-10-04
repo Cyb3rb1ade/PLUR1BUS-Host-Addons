@@ -182,3 +182,59 @@ first.
 
 The characterisation test in this PR asserts that today’s code still publishes
 after displacement. Invert it when (ii) lands.
+
+## (ii) implemented, Node side
+
+`writeFileAtomic` takes an optional `beforeRename` hook. It runs after the temp
+file is written, fsynced and closed, and again before every win32 rename retry
+(a sharing-violation backoff reopens the window). If the hook throws, the temp
+is deleted and the original error is rethrown. Unguarded callers are unchanged.
+
+`writeRegistry` passes `assertHeld` as that hook. `registerBinding` and
+`unregisterLocked` no longer call `assertHeld()` on their own; the check lives
+inside the write. The JS contention worker and the Node interop worker use the
+same order: slow prep (the 3 ms sleep, reading the payload, writing the temp),
+then `assertHeld()`, then the publishing rename. They log `W` in a separate
+append immediately after the rename returns. That publish-to-`W` gap is one
+syscall; `checkEvents` is unchanged. The Python interop worker is unchanged
+in this round (harness `binding.py` / `_filelock.py` follow after Copilot’s
+PR #73).
+
+The characterisation test is inverted: the same waiter-`rename` interleaving,
+then `writeRegistry`; the displaced holder gets `RegistryLockLost`, the
+registry is unchanged, no leftover `.tmp-*`, `checkEvents` reports the overlap
+with `L` and without the two violations.
+
+### Contention loop after (ii)
+
+`node tests/helpers/lock-fr-l1-loop.mjs 200 8000 1` on Darwin / Node v26.8.2,
+1772 s elapsed.
+
+| | before (80 × 8 s) | after (200 × 8 s) |
+|---|---|---|
+| overlap (any) | 4 (5 %) | 4 (2 %) |
+| overlap, displaced holder refused | 3 | 4 |
+| overlap, displaced holder wrote | 1 (1.25 %) | **0** |
+| holds | E 3842, W 3179, L 4, D 659 | E 9760, W 8104, L 4, D 1652 |
+| `checkEvents` violations | 1 run | 0 |
+
+The put-back window still lets a third process in (four overlaps in 200 runs).
+Every displaced holder refused. Target for this round was zero published
+overlaps; that held.
+
+### Interop 3+3 after (ii)
+
+Local Darwin, `tests/dist-hermes-lock-interop.test.js`, 10× in a row, all
+passed. `lost` was 0 in every run. Durations 16.5–24.2 s (limit 240 s). Both
+takeover directions appeared in each run. The Python worker still verifies
+then sleeps 3 ms then writes; this sample did not hit a published overlap on
+that side.
+
+### Remaining window
+
+The last `assertHeld()` and `rename` are still two syscalls. A displaced
+holder can in principle pass the check and lose the path before the rename
+lands (microseconds). Two processes can still overlap in the section; they
+must not both publish. Option (i), a breaker mutex shared with Python, is
+what would keep a single holder in the critical section. That stays a later
+round, after harness PR #73.

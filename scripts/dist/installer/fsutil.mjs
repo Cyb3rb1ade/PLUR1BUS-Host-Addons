@@ -36,8 +36,13 @@ export function rmTree(path) {
   return withWinRetry(() => rmSync(path, { recursive: true, force: true }));
 }
 
-/** temp `<name>.tmp-<pid>` (mode 0600, exclusive) → fsync → rename. */
-export function writeFileAtomic(path, bytes) {
+/**
+ * temp `<name>.tmp-<pid>` (mode 0600, exclusive) → fsync → close → rename.
+ * Optional `beforeRename` runs after fsync/close and again before every win32 rename retry
+ * (a sharing-violation backoff reopens the window). If it throws, the temp is deleted and
+ * the original error is rethrown. Unguarded callers omit the hook.
+ */
+export function writeFileAtomic(path, bytes, { beforeRename, platform = process.platform, rename = renameSync } = {}) {
   mkdirSync(dirname(path), { recursive: true });
   const tmp = `${path}.tmp-${process.pid}`;
   rmSync(tmp, { force: true }); // a stale temp of a reused pid must not lend its mode
@@ -49,7 +54,10 @@ export function writeFileAtomic(path, bytes) {
     closeSync(fd);
   }
   try {
-    renameWithRetry(tmp, path);
+    withWinRetry(() => {
+      if (beforeRename) beforeRename();
+      rename(tmp, path);
+    }, { platform });
   } catch (err) {
     rmSync(tmp, { force: true });
     throw err;

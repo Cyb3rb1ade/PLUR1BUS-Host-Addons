@@ -81,6 +81,11 @@ Installer installiert. Die Einträge von 0.1.0 stammen aus dem Abschnitt `[7.19.
   veröffentlichte Doppelschreiber in CI ist die Lücke zwischen `assertHeld()`
   und dem Write, nicht ein Timeout und nicht die 1-s-PID-Regel. Das
   Lock-Protokoll ist unverändert.
+- Registry-Schreibvorgang (Node): letzte Prüfung unmittelbar vor dem
+  veröffentlichenden Rename (FR-L1 Option ii). Ein verdrängter Halter
+  bekommt `RegistryLockLost` und schreibt nicht. Das Lock-Protokoll bleibt
+  unverändert; die Mikrosekunden zwischen Prüfung und Rename bleiben
+  (Option i, Breaker-Mutex, später).
 - Der Feed erlaubt `hosts.hermes` (Schema).
 - Solange `scripts/dist/hermes-sidecar.lock.json` ein Platzhalter ist, baut
   auch ein echter Lauf den Feed ohne neues Hermes-Release und warnt in Log und
