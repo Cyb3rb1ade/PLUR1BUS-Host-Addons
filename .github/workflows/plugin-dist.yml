@@ -843,7 +843,10 @@ jobs:
           src=$(find "$dir" -maxdepth 1 -type f -name "core-*-linux-x64.tar.gz" | head -n 1)
           [ -n "$src" ] && [ -f "$src" ] || { echo "::error::missing linux-x64 core payload"; ls -l "$dir"; exit 1; }
           wsl -d Ubuntu-24.04 -- mkdir -p /tmp/plur1bus-ci-core
-          wslpath=$(wsl -d Ubuntu-24.04 -- wslpath -a "$src")
+          # wsl.exe is a Windows binary. Git Bash /d/... is not a Windows path; wslpath -a then
+          # yields C:/Program Files/Git/mnt/d/... (hermes-wsl, run 37160634505). Convert first.
+          win_src=$(cygpath -w "$src")
+          wslpath=$(wsl -d Ubuntu-24.04 -- wslpath -a "$win_src")
           wsl -d Ubuntu-24.04 -- cp "$wslpath" /tmp/plur1bus-ci-core/
       - name: Sign a TEST ONLY feed with hosts.hermes over the pack artefact
         # Node inside WSL fileURLToPath's file:///D:/… to /D:/… (run 37140347849). Installer unchanged.
