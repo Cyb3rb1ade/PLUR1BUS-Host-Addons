@@ -342,11 +342,6 @@ jobs:
     needs: pack
     if: github.event_name != 'workflow_dispatch' || inputs.only == '' || inputs.only == 'install'
     runs-on: ${{ matrix.runner }}
-    # OpenClaw 2026.9.8 copies the plugin into openclaw-plugin-build-*
-    # (src/plugins/plugin-source-capture-path.ts) and then loads sharp from that tree. On Linux the
-    # optional libvips package is missing (ERR_DLOPEN_FAILED: libvips-cpp.so.8.17.3). macOS and
-    # Windows latest stay blocking. Remove when fixed upstream or when the plugin degrades (Part 2).
-    continue-on-error: ${{ matrix.openclaw == 'latest' && (matrix.runner == 'ubuntu-24.04' || matrix.runner == 'ubuntu-24.04-arm') }}
     timeout-minutes: 150
     strategy:
       fail-fast: false
@@ -595,7 +590,7 @@ jobs:
         run: node tests/helpers/sign-feed-for-ci.mjs --artefacts "$RUNNER_TEMP/plugin-dist" --tgz "$RELEASE_TGZ" --out-dir "$OC_FEED_DIR"
       # The release predates `plur1bus selftest`, so it is installed raw and the forced-failure rollback (whose verify
       # runs the old version's selftest) is skipped; the upgrade itself goes through install-plugin.sh --update.
-      # Pin 3690fb3 is 7.18.4, the same version as the newest GitHub Release, so there is no older tarball to
+      # Pin b46657b is 7.18.4, the same version as the newest GitHub Release, so there is no older tarball to
       # upgrade from. The download step above still has to accept the asset name.
       - name: Nothing to upgrade when the release version is the pack
         if: env.RELEASE_VERSION == needs.pack.outputs.version
