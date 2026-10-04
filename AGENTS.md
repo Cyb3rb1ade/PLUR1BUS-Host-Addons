@@ -44,6 +44,11 @@ npm test
 - `tests/dist-hermes-lock-interop.test.js` runs Node and Python (>= 3.11)
   holders on one bindings-registry lock; it skips without Python unless
   `PLUR1BUS_REQUIRE_LOCK_INTEROP=1` (set in CI's `ci.yml`).
+- `tests/dist-hermes-lock-fr-l1.test.js` characterises the verify-then-write
+  window (`docs/lock-fr-l1-analysis.md`). Manual helpers
+  `tests/helpers/lock-fr-l1-loop.mjs` and `lock-interop-measure.mjs` are not
+  part of `npm test`. `PLUR1BUS_LOCK_TEST_TIMES=1` adds timestamps to interop
+  worker event lines (ignored by `checkEvents`).
 - `tests/vendor-sources.test.js` fails when a file under `vendor/plur1bus-memory/` differs from the SHA-256 in
   `vendor/plur1bus-memory/SOURCES.json`. Never edit vendored files by hand; re-copy from the plugin commit and update
   `SOURCES.json`.

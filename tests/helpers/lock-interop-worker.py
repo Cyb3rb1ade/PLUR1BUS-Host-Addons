@@ -9,6 +9,7 @@ Windows), as a killed installer would. It stops when ``until`` passes or the sto
 
 Each event is one atomic append: one ``os.write`` on an O_APPEND fd on POSIX, one ``WriteFile`` on a
 FILE_APPEND_DATA handle on Windows (the CRT's O_APPEND seeks then writes, which is not atomic across processes).
+``PLUR1BUS_LOCK_TEST_TIMES=1`` appends a millisecond timestamp (``checkEvents`` ignores it).
 
 Usage: python -B lock-interop-worker.py <fixture python dir> <plur1bus home> <id> <die_every> <until_epoch_ms> <stop file>
 """
@@ -63,7 +64,8 @@ else:
 
 
 def log(kind, seq):
-    append(events, f"{kind} {wid} {seq}\n".encode())
+    extra = f" {int(time.time() * 1000)}" if os.environ.get("PLUR1BUS_LOCK_TEST_TIMES") else ""
+    append(events, f"{kind} {wid} {seq}{extra}\n".encode())
 
 
 def die():

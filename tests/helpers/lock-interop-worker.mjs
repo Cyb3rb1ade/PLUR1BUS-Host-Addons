@@ -4,6 +4,7 @@
 // read-modify-write of <home>/counter ran, a few ms after the check), then X (left); every `dieEvery`-th hold (0 =
 // never) D, then SIGKILL while holding. Each event is one appendFileSync (libuv opens O_APPEND, FILE_APPEND_DATA on
 // Windows: one atomic append). Stops when `untilMs` passes or the stop file exists.
+// PLUR1BUS_LOCK_TEST_TIMES=1 appends a millisecond timestamp (checkEvents ignores it).
 // Usage: node lock-interop-worker.mjs <plur1bus home> <id> <dieEvery> <untilMs> <stop file>
 import { appendFileSync, existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -14,7 +15,7 @@ import { sleepSync } from "../../scripts/dist/installer/fsutil.mjs";
 const [home, id, dieEvery, until, stop] = process.argv.slice(2);
 const events = join(home, "events.log");
 const counter = join(home, "counter");
-const log = (kind, seq) => appendFileSync(events, `${kind} ${id} ${seq}\n`);
+const log = (kind, seq) => appendFileSync(events, process.env.PLUR1BUS_LOCK_TEST_TIMES ? `${kind} ${id} ${seq} ${Date.now()}\n` : `${kind} ${id} ${seq}\n`);
 let seq = 0;
 while (Date.now() < Number(until) && !existsSync(stop)) {
   try {
