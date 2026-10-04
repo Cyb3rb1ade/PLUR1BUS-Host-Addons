@@ -842,12 +842,13 @@ jobs:
           if command -v cygpath >/dev/null 2>&1; then dir=$(cygpath -u "$dir"); fi
           src=$(find "$dir" -maxdepth 1 -type f -name "core-*-linux-x64.tar.gz" | head -n 1)
           [ -n "$src" ] && [ -f "$src" ] || { echo "::error::missing linux-x64 core payload"; ls -l "$dir"; exit 1; }
-          wsl -d Ubuntu-24.04 -- mkdir -p /tmp/plur1bus-ci-core
-          # wsl.exe is a Windows binary. Git Bash /d/... is not a Windows path; wslpath -a then
-          # yields C:/Program Files/Git/mnt/d/... (hermes-wsl, run 37160634505). Convert first.
-          win_src=$(cygpath -w "$src")
-          wslpath=$(wsl -d Ubuntu-24.04 -- wslpath -a "$win_src")
-          wsl -d Ubuntu-24.04 -- cp "$wslpath" /tmp/plur1bus-ci-core/
+          case "$src" in
+            /[A-Za-z]/*) wsl_src="/mnt/${src#/}" ;;
+            *) echo "::error::cannot map $src into WSL"; exit 1 ;;
+          esac
+          # Git Bash strips backslashes when it invokes wsl.exe (run 37163663114: wslpath printed
+          # D:a_tempplugin-dist...). Copy via /mnt/<drive>/... with path conversion off.
+          MSYS_NO_PATHCONV=1 wsl -d Ubuntu-24.04 -- bash -lc "mkdir -p /tmp/plur1bus-ci-core && cp '$wsl_src' /tmp/plur1bus-ci-core/"
       - name: Sign a TEST ONLY feed with hosts.hermes over the pack artefact
         # Node inside WSL fileURLToPath's file:///D:/… to /D:/… (run 37140347849). Installer unchanged.
         run: node tests/helpers/sign-feed-for-ci.mjs --artefacts "$RUNNER_TEMP/plugin-dist" --out-dir "$RUNNER_TEMP/hermes-feed" --wsl-file-urls

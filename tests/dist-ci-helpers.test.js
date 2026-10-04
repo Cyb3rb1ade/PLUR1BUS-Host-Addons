@@ -446,10 +446,11 @@ describe("plugin-dist Hermes legs (HM2 Task 11)", () => {
     assert.equal(wslPlace.if, "vars.HM2_SIDECAR_RELEASED != 'true'");
     assert.match(wslPlace.run, /\/tmp\/plur1bus-ci-core/);
     assert.match(wslPlace.run, /find "\$dir" -maxdepth 1 -type f -name "core-\*-linux-x64\.tar\.gz"/);
-    assert.match(wslPlace.run, /cygpath -w "\$src"/);
-    assert.match(wslPlace.run, /wslpath -a "\$win_src"/);
+    assert.match(wslPlace.run, /wsl_src="\/mnt\/\$\{src#\/\}"/);
+    assert.match(wslPlace.run, /MSYS_NO_PATHCONV=1/);
     assert.doesNotMatch(wslPlace.run, /set -- \$src/);
-    assert.doesNotMatch(wslPlace.run, /wslpath -a "\$src"/);
+    assert.doesNotMatch(wslPlace.run, /wslpath -/);
+    assert.doesNotMatch(wslPlace.run, /cygpath -w/);
   });
 
   it("the CI feed carries hosts.hermes from the lock (a placeholder lock is accepted only here)", async () => {
