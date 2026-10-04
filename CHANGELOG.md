@@ -77,6 +77,10 @@ Installer installiert. Die Einträge von 0.1.0 stammen aus dem Abschnitt `[7.19.
   `/mnt/<laufwerk>/…`, weil Node in WSL aus `file:///D:/…` den Pfad `/D:/…` macht.
 - OpenClaw `latest` in der Install-Matrix ist auf allen fünf Runnern
   blockierend. Das WSL-Bein bleibt C8 (`continue-on-error`).
+- Analyse der Registry-Sperre (FR-L1): `docs/lock-fr-l1-analysis.md`. Der
+  veröffentlichte Doppelschreiber in CI ist die Lücke zwischen `assertHeld()`
+  und dem Write, nicht ein Timeout und nicht die 1-s-PID-Regel. Das
+  Lock-Protokoll ist unverändert.
 - Der Feed erlaubt `hosts.hermes` (Schema).
 - Solange `scripts/dist/hermes-sidecar.lock.json` ein Platzhalter ist, baut
   auch ein echter Lauf den Feed ohne neues Hermes-Release und warnt in Log und
