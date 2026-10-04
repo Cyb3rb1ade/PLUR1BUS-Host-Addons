@@ -229,8 +229,10 @@ export function checkBinding(plur1busHome, agentId, hermesHome, platform = proce
  *     moved my live lock aside and is putting it back), wait for the put-back (poll 5 ms, the same 2 s) and release
  *     it, so no live-pid lock with an abandoned nonce stays behind. The moved file is unlinked only when it holds my
  *     nonce, else put back as above (a stolen lock is never deleted; an unreadable one is left to the sweep);
- *   * the holder calls assertHeld() just before writing the registry: lock-lost unless its nonce is in the lock,
- *     waiting out a pending put-back the same way;
+ *   * the holder calls assertHeld() immediately before the rename that publishes the registry (after the temp
+ *     file is written and fsynced): lock-lost unless its nonce is in the lock, waiting out a pending put-back
+ *     the same way. The residual window is the microseconds between that last verify and rename; a displaced
+ *     holder does not publish. A breaker mutex (option i) would close two-in-CS entirely;
  *   * moved files are unlinked with a 0.5 s Windows sharing retry, else left to the sweep; `*.break-*` / `*.rel-*`
  *     leftovers older than 60 s are removed; 25 ms poll, 10 s deadline.
  */
@@ -439,7 +441,7 @@ function releaseLock(lock, nonce, platform) {
 
 /**
  * Run `fn({ assertHeld })` under the registry lock; `assertHeld()` throws RegistryLockLost unless the lock still holds
- * this run's nonce (call it right before writing). An async `fn` holds the lock until its promise settles.
+ * this run's nonce (call it immediately before the publishing rename). An async `fn` holds the lock until its promise settles.
  */
 export function withRegistryLock(plur1busHome, fn, { platform = process.platform } = {}) {
   const lock = join(plur1busHome, "hosts", REGISTRY_LOCK_FILE);
@@ -492,9 +494,10 @@ export function withRegistryLock(plur1busHome, fn, { platform = process.platform
   return result;
 }
 
-function writeRegistry(plur1busHome, bindings) {
+/** Publish the registry: temp + fsync, then `assertHeld()`, then the rename. */
+export function writeRegistry(plur1busHome, bindings, assertHeld) {
   const sorted = Object.fromEntries(Object.entries(bindings).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)));
-  writeFileAtomic(registryPath(plur1busHome), `${JSON.stringify({ schema: REGISTRY_SCHEMA, bindings: sorted }, null, 2)}\n`);
+  writeFileAtomic(registryPath(plur1busHome), `${JSON.stringify({ schema: REGISTRY_SCHEMA, bindings: sorted }, null, 2)}\n`, { beforeRename: assertHeld });
 }
 
 /**
@@ -507,8 +510,7 @@ export function registerBinding(plur1busHome, agentId, hermesHome, platform = pr
     const bindings = readRegistry(plur1busHome);
     const updated = registryAdd(bindings, agentId, real, platform);
     if (agentId in bindings) return { added: false, home: real };
-    assertHeld();
-    writeRegistry(plur1busHome, updated);
+    writeRegistry(plur1busHome, updated, assertHeld);
     return { added: true, home: real };
   });
 }
@@ -524,7 +526,6 @@ export function unregisterLocked(plur1busHome, agentId, hermesHome, platform, as
   const bindings = readRegistry(plur1busHome);
   if (!(agentId in bindings) || !samePath(bindings[agentId], real, platform)) return false;
   delete bindings[agentId];
-  assertHeld();
-  writeRegistry(plur1busHome, bindings);
+  writeRegistry(plur1busHome, bindings, assertHeld);
   return true;
 }
