@@ -64,9 +64,11 @@ Installer installiert. Die Einträge von 0.1.0 stammen aus dem Abschnitt `[7.19.
 ### Geändert
 
 - `plugin-dist.yml` baut den Hermes-Provider und die Sidecar-Binaries aus dem Harness-Commit
-  in `harness-pin.json`, solange `HM2_SIDECAR_RELEASED` nicht `true` ist. Das TEST-ONLY-CI-Feed
-  zeigt per `file://` und SHA-256 auf diese Artefakte. Der Produktions-Feed und der Installer
-  bleiben unverändert. Die Hermes-Jobs sind damit blockierend.
+  in `harness-pin.json`, solange `HM2_SIDECAR_RELEASED` nicht `true` ist, für alle fünf
+  Feed-Ziele (`linux-x64`, `linux-arm64`, `darwin-arm64`, `win-x64`, `win-arm64` auf
+  `windows-11-arm`). Das TEST-ONLY-CI-Feed zeigt per `file://` und SHA-256 auf diese Artefakte.
+  Der Produktions-Feed und der Installer bleiben unverändert. Die Hermes-Jobs sind damit
+  blockierend.
 - `upgrade-from-release` akzeptiert `cyb3rb1ade-plur1bus-memory-*.tgz` und
   `plur1bus-*.tgz` (grep-Fallback unter `pipefail`). Liegt das Release auf
   derselben Version wie der Pin, entfällt der Upgrade-Lauf. `plugin-pin.json`

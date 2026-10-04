@@ -418,6 +418,7 @@ describe("plugin-dist Hermes legs (HM2 Task 11)", () => {
         ["linux-arm64", "ubuntu-24.04-arm"],
         ["darwin-arm64", "macos-15"],
         ["win-x64", "windows-2025"],
+        ["win-arm64", "windows-11-arm"],
       ],
     );
     const checkout = job.steps.find((s) => String(s.uses).startsWith("actions/checkout@") && s.with?.path === "harness");
@@ -502,25 +503,29 @@ describe("plugin-dist Hermes legs (HM2 Task 11)", () => {
     await packArtefact(dir);
     const linux = Buffer.from("TEST ONLY linux-x64 sidecar\n");
     const win = Buffer.from("TEST ONLY win-x64 sidecar\n");
+    const winArm = Buffer.from("TEST ONLY win-arm64 sidecar\n");
     writeFileSync(join(dir, "plur1bus-linux-x64"), linux);
     writeFileSync(join(dir, "plur1bus-win-x64.exe"), win);
+    writeFileSync(join(dir, "plur1bus-win-arm64.exe"), winArm);
     const r = await signFeedForCi({ artefacts: dir, outDir: join(dir, "feed") });
     const feed = JSON.parse(readFileSync(r.feedFile, "utf8"));
     const lock = JSON.parse(readFileSync(join(REPO, "scripts", "dist", "hermes-sidecar.lock.json"), "utf8"));
     const linuxSha = createHash("sha256").update(linux).digest("hex");
     const winSha = createHash("sha256").update(win).digest("hex");
+    const winArmSha = createHash("sha256").update(winArm).digest("hex");
     assert.equal(feed.hosts.hermes.releases[0].sidecar.binary["linux-x64"].url, pathToFileURL(join(dir, "plur1bus-linux-x64")).href);
     assert.equal(feed.hosts.hermes.releases[0].sidecar.binary["linux-x64"].sha256, linuxSha);
     assert.equal(feed.hosts.hermes.releases[0].sidecar.binary["win-x64"].url, pathToFileURL(join(dir, "plur1bus-win-x64.exe")).href);
     assert.equal(feed.hosts.hermes.releases[0].sidecar.binary["win-x64"].sha256, winSha);
-    assert.deepEqual(feed.hosts.hermes.releases[0].sidecar.binary["win-arm64"], lock.binary["win-arm64"], "targets without a built file stay on the lock");
-    assert.deepEqual(feed.hosts.hermes.releases[0].sidecar.binary["linux-arm64"], lock.binary["linux-arm64"]);
+    assert.equal(feed.hosts.hermes.releases[0].sidecar.binary["win-arm64"].url, pathToFileURL(join(dir, "plur1bus-win-arm64.exe")).href);
+    assert.equal(feed.hosts.hermes.releases[0].sidecar.binary["win-arm64"].sha256, winArmSha);
+    assert.deepEqual(feed.hosts.hermes.releases[0].sidecar.binary["linux-arm64"], lock.binary["linux-arm64"], "targets without a built file stay on the lock");
     assert.deepEqual(validateFeed(feed, { allowFile: true }), { ok: true, errors: [] });
     const wslFeed = JSON.parse(JSON.stringify(feed));
     wslFeed.hosts.hermes.releases[0].sidecar.binary["linux-x64"].url = "file:///D:/a/_temp/plugin-dist/plur1bus-linux-x64";
     rewriteHermesProviderUrlsForWsl(wslFeed);
     assert.equal(wslFeed.hosts.hermes.releases[0].sidecar.binary["linux-x64"].url, "file:///mnt/d/a/_temp/plugin-dist/plur1bus-linux-x64");
-    assert.equal(wslFeed.hosts.hermes.releases[0].sidecar.binary["win-arm64"].url, lock.binary["win-arm64"].url);
+    assert.equal(wslFeed.hosts.hermes.releases[0].sidecar.binary["linux-arm64"].url, lock.binary["linux-arm64"].url);
     const empty = { hosts: { hermes: { releases: [{ sidecar: { binary: JSON.parse(JSON.stringify(lock.binary)) } }] } } };
     rewriteHermesSidecarFromArtefacts(empty, dir);
     assert.equal(empty.hosts.hermes.releases[0].sidecar.binary["linux-x64"].sha256, linuxSha);
