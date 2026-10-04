@@ -1,11 +1,14 @@
 """TEST ONLY: a Python contender for the shared bindings-registry lock (tests/dist-hermes-lock-interop.test.js).
 
 Uses the harness ExclusiveLockFile (tests/fixtures/hermes/python/_filelock.py, a byte copy of
-hosts/hermes/plur1bus/_filelock.py) exactly as binding.py register_binding does. Per hold it appends to
-<home>/events.log: E (entered), then after ``held.verify()`` either L (lock lost: nothing written) or W (the guarded
-read-modify-write of <home>/counter ran, a few ms after the verify), then X (left). Every ``die_every``-th hold
-(0 = never) it logs D after the verify and kills itself while still holding the lock (SIGKILL; TerminateProcess on
-Windows), as a killed installer would. It stops when ``until`` passes or the stop file exists.
+hosts/hermes/plur1bus/_filelock.py). Per hold it appends to <home>/events.log: E (entered), slow prep
+(read the counter, write the temp), then ``held.verify()`` immediately before the publishing replace:
+L when that refuses (nothing written) or W right after the replace, then X (left). Every ``die_every``-th
+hold (0 = never) logs D after verify and before the replace, then kills itself while still holding
+(SIGKILL; TerminateProcess on Windows). It stops when ``until`` passes or the stop file exists.
+
+The guarded publish is test-local (temp, fsync, verify, replace, Windows sharing retries). It does not
+import harness ``binding.py``.
 
 Each event is one atomic append: one ``os.write`` on an O_APPEND fd on POSIX, one ``WriteFile`` on a
 FILE_APPEND_DATA handle on Windows (the CRT's O_APPEND seeks then writes, which is not atomic across processes).
@@ -14,6 +17,7 @@ FILE_APPEND_DATA handle on Windows (the CRT's O_APPEND seeks then writes, which 
 Usage: python -B lock-interop-worker.py <fixture python dir> <plur1bus home> <id> <die_every> <until_epoch_ms> <stop file>
 """
 
+import errno
 import os
 import signal
 import sys
@@ -73,6 +77,44 @@ def die():
     time.sleep(10)
 
 
+def _publish(path, text, before_replace):
+    """Temp, fsync, then ``before_replace`` immediately before ``os.replace`` and every Windows retry."""
+    tmp = f"{path}.tmp-{os.getpid()}"
+    try:
+        os.unlink(tmp)
+    except FileNotFoundError:
+        pass
+    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    try:
+        payload = text if isinstance(text, (bytes, bytearray)) else text.encode("utf-8")
+        os.write(fd, payload)
+        os.fsync(fd)
+    finally:
+        os.close(fd)
+    try:
+        deadline = time.monotonic() + 10.0
+        delay = 0.05
+        while True:
+            try:
+                before_replace()
+                os.replace(tmp, path)
+                return
+            except PermissionError as e:
+                transient = os.name == "nt" and (
+                    getattr(e, "winerror", None) in (5, 32, 33) or e.errno in (errno.EACCES, errno.EPERM, errno.EBUSY)
+                )
+                if not transient or time.monotonic() >= deadline:
+                    raise
+                time.sleep(delay)
+                delay = min(delay * 2, 1.0)
+    except BaseException:
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+        raise
+
+
 seq = 0
 while time.time() * 1000 < until and not os.path.exists(stop):
     try:
@@ -80,21 +122,24 @@ while time.time() * 1000 < until and not os.path.exists(stop):
             seq += 1
             log("E", seq)
             time.sleep(0.002)
-            try:
+            time.sleep(0.003)  # slow prep first: the last verify sits immediately before publish
+            n = 0
+            if os.path.exists(counter):
+                with open(counter, encoding="utf-8") as f:
+                    n = int(f.read() or "0")
+
+            def hook() -> None:
                 held.verify()
+                if die_every and seq % die_every == 0:
+                    log("D", seq)
+                    die()  # dies holding the lock, after verify and before the replace
+
+            try:
+                _publish(counter, str(n + 1), hook)
             except LockLost:
-                log("L", seq)
+                log("L", seq)  # displaced (FR-L1): the write is refused
                 log("X", seq)
                 continue
-            if die_every and seq % die_every == 0:
-                log("D", seq)
-                die()
-            time.sleep(0.003)  # the write itself takes a moment: a holder displaced now must never write
-            with open(counter, "r+" if os.path.exists(counter) else "w+") as f:
-                n = int(f.read() or "0")
-                f.seek(0)
-                f.truncate()
-                f.write(str(n + 1))
             log("W", seq)
             log("X", seq)
     except LockTimeout:
