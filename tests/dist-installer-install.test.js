@@ -292,7 +292,8 @@ describe("plugin installer: install", () => {
     assert.ok(calls.some((a) => a.join(" ") === `config set ${C}.modelPreparation.acceptNonCommercialLicense true`));
     assert.ok(calls.some((a) => a.join(" ") === `config set ${C}.embedding.model jinaai/jina-embeddings-v5-text-nano-retrieval`));
     const accepted = readState(sb.stateDir).licence;
-    assert.equal(accepted.by, "sandbox-user");
+    assert.equal(accepted.by, undefined, "the OS user name is never recorded (K6 M-2)");
+    assert.match(accepted.byHash, /^[0-9a-f]{8}$/);
     assert.ok(!Number.isNaN(Date.parse(accepted.at)));
     assert.equal(accepted.model, "jinaai/jina-embeddings-v5-text-nano-retrieval");
     assert.equal(accepted.revision, "ac5d898c8d382b17167c33e5c8af644a3519b47d");
@@ -303,7 +304,8 @@ describe("plugin installer: install", () => {
     const viaEnv = await resolveLicence({ interactive: false, acceptNc: false, env: { PLUR1BUS_ACCEPT_NONCOMMERCIAL_LICENSE: "1", USER: "u" }, prompt: null });
     assert.equal(viaEnv.profile, "jina-v5-nano-768");
     assert.equal(viaEnv.acceptNonCommercialLicense, true);
-    assert.equal(viaEnv.accepted.by, "u");
+    assert.equal(viaEnv.accepted.by, undefined);
+    assert.match(viaEnv.accepted.byHash, /^[0-9a-f]{8}$/);
   });
 
   it("an existing embedding choice is never changed", async () => {

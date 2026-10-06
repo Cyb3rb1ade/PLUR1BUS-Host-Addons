@@ -5,7 +5,7 @@
  * to an explicit CC BY-NC 4.0 confirmation for Jina v5 Text Nano, anything else
  * gives E5-small (MIT). Non-interactive: E5-small unless `--accept-nc-licence`
  * or PLUR1BUS_ACCEPT_NONCOMMERCIAL_LICENSE=1 (C11). Never a silent acceptance:
- * an acceptance always carries who (OS user), when, model, revision and licence.
+ * an acceptance always carries who (a short hash of the OS user name, never the name — audit K6 M-2), when, model, revision and licence.
  *
  * `useClass` (ruling F2, HM2-R18) is the harness setup's `--use-class`: `commercial` when the
  * personal-use question is answered no, else `general` (non-interactive, declined or accepted NC
@@ -14,6 +14,7 @@
  */
 
 import { userInfo } from "node:os";
+import { userHash } from "./redact.mjs";
 import { E5_EMBEDDING_PROFILE, JINA_V5_NANO_EMBEDDING_PROFILE } from "../../../vendor/plur1bus-memory/lib/providers/local-model-artifacts.js";
 
 export const E5_PROFILE_ID = "e5-multilingual-384";
@@ -44,7 +45,7 @@ function accept(env, now) {
     profile: JINA_V5_PROFILE_ID,
     acceptNonCommercialLicense: true,
     useClass: "general",
-    accepted: { by: osUser(env), at: new Date(now()).toISOString(), model: p.model, revision: p.revision, licence: NC_LICENCE },
+    accepted: { byHash: userHash(osUser(env)), at: new Date(now()).toISOString(), model: p.model, revision: p.revision, licence: NC_LICENCE },
   };
 }
 
@@ -52,7 +53,7 @@ const E5 = (useClass = "general") => ({ profile: E5_PROFILE_ID, acceptNonCommerc
 
 /**
  * @param {{ interactive: boolean, acceptNc: boolean, env: Record<string,string|undefined>, prompt: ((q: string) => Promise<string>) | null, now?: () => number, ncQuestion?: string }} a
- * @returns {Promise<{ profile: string, acceptNonCommercialLicense: boolean, useClass: "general"|"commercial", accepted?: { by: string, at: string, model: string, revision: string, licence: "CC-BY-NC-4.0" } }>}
+ * @returns {Promise<{ profile: string, acceptNonCommercialLicense: boolean, useClass: "general"|"commercial", accepted?: { byHash: string, at: string, model: string, revision: string, licence: "CC-BY-NC-4.0" } }>}
  */
 export async function resolveLicence({ interactive, acceptNc, env, prompt, now = Date.now, ncQuestion }) {
   if (acceptNc || env.PLUR1BUS_ACCEPT_NONCOMMERCIAL_LICENSE === "1") return accept(env, now);

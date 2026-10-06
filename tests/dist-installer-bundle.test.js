@@ -102,6 +102,56 @@ describe("plugin installer bundle", () => {
     assert.match(bad.stderr + bad.stdout, /feed signature check failed/);
   });
 
+  // K6 M-1: a mirror URL that carries a token goes in PLUR1BUS_PLUGIN_FEED (argv is visible in `ps`). Outside test mode the
+  // installer must use it, and the feed must still verify against the key built into the bundle. The bundle runs as a child
+  // with a preloaded fetch stub (no network); the stub logs every requested URL.
+  it("PLUR1BUS_PLUGIN_FEED is honoured outside test mode and its signature is checked against the built-in key", () => {
+    const stable = generateTestKeyPair();
+    const beta = generateTestKeyPair();
+    const attacker = generateTestKeyPair();
+    const file = renderedCopy({ pubkeyStable: stable.publicKeyLine, pubkeyBeta: beta.publicKeyLine });
+    const sb = createInstallerSandbox();
+    const bytes = Buffer.from(JSON.stringify(sb.feed, null, 2));
+    const url = "https://mirror.example/p/stable.json?token=MARKERFEEDTOKEN";
+    const dir = makeTempDir("plur1bus-fetch-stub-");
+    const stub = join(dir, "stub.mjs");
+    writeFileSync(
+      stub,
+      `import { appendFileSync, readFileSync } from "node:fs";
+globalThis.fetch = async (u) => {
+  appendFileSync(process.env.STUB_LOG, String(u) + "\\n");
+  const f = String(u).endsWith(".minisig") ? process.env.STUB_SIG : process.env.STUB_BODY;
+  const b = readFileSync(f);
+  return { ok: true, status: 200, arrayBuffer: async () => b.buffer.slice(b.byteOffset, b.byteOffset + b.byteLength) };
+};
+`,
+    );
+    const body = join(dir, "feed.json");
+    writeFileSync(body, bytes);
+    const run = (name, signer, pubkeyEnv) => {
+      const sig = join(dir, `${name}.minisig`);
+      const log = join(dir, `${name}.log`);
+      writeFileSync(sig, signer.sign(bytes));
+      writeFileSync(log, "");
+      const env = { ...sb.env, PLUR1BUS_PLUGIN_FEED: url, STUB_LOG: log, STUB_SIG: sig, STUB_BODY: body, PLUR1BUS_PLUGIN_TEST_FREE_BYTES: String(64 * 1024 ** 3) };
+      delete env.PLUR1BUS_PLUGIN_INSTALLER_TEST;
+      delete env.PLUR1BUS_PLUGIN_PUBKEY;
+      // without the test flag the env key must be ignored: a feed signed by a key the caller names is still refused
+      if (pubkeyEnv) env.PLUR1BUS_PLUGIN_PUBKEY = pubkeyEnv;
+      const r = spawnSync(process.execPath, ["--import", pathToFileURL(stub).href, file, "--dry-run", "--json"], { encoding: "utf8", env, timeout: 60_000 });
+      return { status: r.status, out: `${r.stdout}${r.stderr}`, seen: readFileSync(log, "utf8").split("\n").filter(Boolean) };
+    };
+    const good = run("good", stable);
+    assert.deepEqual(good.seen, [url, `${url}.minisig`], `the env URL is what is fetched, not the default feed: ${good.out}`);
+    assert.doesNotMatch(good.out, /feed signature check failed|carries no feed public key/);
+    assert.doesNotMatch(good.out, /MARKERFEEDTOKEN/);
+    const bad = run("bad", attacker, attacker.publicKeyLine);
+    assert.deepEqual(bad.seen, [url, `${url}.minisig`]);
+    assert.equal(bad.status, 1, bad.out);
+    assert.match(bad.out, /feed signature check failed/, "a feed signed by any other key is rejected, also when PLUR1BUS_PLUGIN_PUBKEY names that key (test flag unset)");
+    assert.doesNotMatch(bad.out, /MARKERFEEDTOKEN/);
+  });
+
   it("an unrendered or TEST ONLY bundle refuses a feed it has to verify itself", () => {
     const key = generateTestKeyPair();
     const test = renderedCopy({ testKey: true });

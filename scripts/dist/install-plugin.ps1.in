@@ -61,8 +61,27 @@ function Fail([int]$code, [string]$message) {
   throw $e
 }
 
+# Protect-Urls: every URL in the text loses userinfo, query, fragment and path (audit K6 M-1: a mirror URL in
+# PLUR1BUS_PLUGIN_FEED may carry a token and these lines end up in CI logs). Scheme, host and a plain file name with a
+# known extension remain.
+function Protect-Urls([string]$text) {
+  return [regex]::Replace($text, '(?i)\b([a-z][a-z0-9+.-]*://)(?=[\w\[%/-])(?:[^/?#\s@]*@)?([^/?#\s]*)([^\s"]*)', {
+    param($m)
+    $path = $m.Groups[3].Value
+    # sentence punctuation after the URL ("${url}: expected ...") is not part of it: keep it, out of the file-name test
+    $trail = ''
+    if ($path -match '[.,;:!?)\]'']+$') { $trail = $Matches[0]; $path = $path.Substring(0, $path.Length - $trail.Length) }
+    $cut = $path.IndexOfAny([char[]]@('?', '#'))
+    if ($cut -ge 0) { $path = $path.Substring(0, $cut) }
+    $leaf = $path.Substring($path.LastIndexOf('/') + 1)
+    $file = ''
+    if ($leaf -cmatch '^[A-Za-z0-9._-]+\.(json|minisig|tgz|tar\.gz|tar\.xz|mjs|sh|ps1|zip)$') { $file = "/$leaf" }
+    return $m.Groups[1].Value + $m.Groups[2].Value + '/...' + $file + $trail
+  })
+}
+
 function Say([string]$message) {
-  [Console]::Error.WriteLine("install-plugin: $message")
+  [Console]::Error.WriteLine("install-plugin: $(Protect-Urls $message)")
 }
 
 # win-x64 | win-arm64, or $null outside the release matrix. PROCESSOR_ARCHITEW6432 is the real architecture when this
@@ -131,7 +150,7 @@ function Get-Resource([string]$uri, [string]$file) {
     # (Integrity never depended on it: the feed signature and the SHA-256s in the signed feed are checked anyway.)
     $final = Get-FinalUri $resp
     if ($null -eq $final) {
-      Write-Warning "install-plugin.ps1: could not read the final URL of $uri; relying on the signature and SHA-256 checks"
+      Write-Warning "install-plugin.ps1: could not read the final URL of $(Protect-Urls $uri); relying on the signature and SHA-256 checks"
     } elseif ($final.Scheme -ne 'https') {
       Remove-Item -LiteralPath $file -Force -ErrorAction SilentlyContinue
       Fail 1 "refusing a redirect to a non-https URL: $uri -> $final"
@@ -689,7 +708,7 @@ try {
   $ex = $_.Exception
   $exitCode = 1
   if ($ex.Data.Contains('exitCode')) { $exitCode = [int]$ex.Data['exitCode'] }
-  [Console]::Error.WriteLine("install-plugin: $($ex.Message)")
+  [Console]::Error.WriteLine("install-plugin: $(Protect-Urls $ex.Message)")
 } finally {
   if ($tmp) { Remove-Item -LiteralPath $tmp -Recurse -Force -ErrorAction SilentlyContinue }
   foreach ($name in $savedEnv.Keys) { [Environment]::SetEnvironmentVariable($name, $savedEnv[$name], 'Process') }

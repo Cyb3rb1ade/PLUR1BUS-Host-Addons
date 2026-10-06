@@ -189,7 +189,7 @@ if (args[0] === "plugins" && args[1] === "install") {
     done(1);
   }
   if (scenario.installExit) {
-    err("TEST ONLY install failure\n");
+    err(scenario.installStderr ?? "TEST ONLY install failure\n");
     done(scenario.installExit);
   }
   let m;

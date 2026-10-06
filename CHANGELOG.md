@@ -7,6 +7,15 @@ Installer installiert. Die Einträge von 0.1.0 stammen aus dem Abschnitt `[7.19.
 
 ## [0.1.0] — unreleased
 
+### Datenschutz (Installer)
+
+- URLs in Ausgabe und `--json` werden geschwärzt (`scheme://host/…/<datei>#h=<hash>`),
+  die Lizenzannahme speichert `byHash` statt des OS-Benutzernamens, und
+  Fehlertext von `openclaw`/`hermes`/`plur1bus` wird auf Exit-Code und einen
+  begrenzten, geschwärzten Auszug reduziert; `--verbose`/`--debug` zeigt den
+  vollen Text. `PLUR1BUS_PLUGIN_FEED` gilt auch im direkt gestarteten Installer
+  (statt `--feed` in `ps`). Befunde M-1, M-2, M-4 des Audits K6.
+
 ### Hinzugefügt
 
 - **`--host hermes`** für den Installer und beide Bootstraps (`-Host hermes`

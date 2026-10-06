@@ -19,6 +19,7 @@
 import { execFile } from "node:child_process";
 import { lstatSync } from "node:fs";
 import { isAbsolute } from "node:path";
+import { isVerbose, scrubLines } from "./redact.mjs";
 
 export const PLUGIN_ID = "memory-lancedb-namespaced";
 const C = `plugins.entries.${PLUGIN_ID}.config`;
@@ -140,7 +141,7 @@ function refuse(kind, path) {
 
 /** Last few non-empty lines of an OpenClaw message, for a human report line. */
 export function tail(text, n = 3) {
-  return String(text ?? "").split(/\r?\n/).map((l) => l.trim()).filter(Boolean).slice(-n).join(" | ");
+  return scrubLines(String(text ?? "").split(/\r?\n/).map((l) => l.trim()).filter(Boolean).slice(-n));
 }
 
 // OpenClaw's generic failure block (src/cli/failure-output.ts, 2026.8.1 and 2026.9.6) ends with these hints; they
@@ -168,10 +169,12 @@ function meaningfulLines(text) {
  */
 export function failureSummary(out, n = 3) {
   const { stderr = "", stdout = "" } = typeof out === "string" ? { stderr: out } : (out ?? {});
+  if (isVerbose()) n = 40;
   const err = meaningfulLines(stderr);
   const std = meaningfulLines(stdout);
   const lines = err.length ? [...err.slice(0, n), ...std.filter((l) => isErrorLine(l) && !err.includes(l)).slice(0, 2)] : std.slice(0, n);
-  return lines.length ? lines.join(" | ") : "(no error text from openclaw)";
+  const text = scrubLines(lines);
+  return text ? text : "(no error text from openclaw)";
 }
 
 /**

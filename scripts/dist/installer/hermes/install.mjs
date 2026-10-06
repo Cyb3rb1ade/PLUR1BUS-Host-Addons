@@ -38,6 +38,7 @@ import { compareVersions } from "../../build-plugin-feed.mjs";
 import { findHarnessHomes, resolveTarget } from "../compat.mjs";
 import { writeFileAtomic } from "../fsutil.mjs";
 import { resolveLicence } from "../licence.mjs";
+import { publicLicence } from "../redact.mjs";
 import { EXIT, Stop } from "../report.mjs";
 import { fetchBytes } from "../update.mjs";
 import { sha256Hex } from "../untar.mjs";
@@ -307,7 +308,7 @@ export async function runHermesInstall(ctx) {
   let licence = null;
   if (resuming && USE_CLASSES.includes(state.useClass)) {
     useClass = state.useClass;
-    licence = state.licence ?? null;
+    licence = publicLicence(state.licence) ?? null;
     report.step("licence", "skipped", `use class ${useClass} recorded by the interrupted run`);
     if (flags["accept-nc-licence"] && !licence?.acceptNonCommercialLicense) report.note(`Note: --accept-nc-licence is not applied: the interrupted run recorded use class ${useClass} without it; roll it back (--rollback) to choose again.`);
   } else if (hostSidecar && existsSync(bin)) {
@@ -331,8 +332,8 @@ export async function runHermesInstall(ctx) {
       ncQuestion: "The default PLUR1BUS embedding models are licensed CC-BY-NC-4.0 (non-commercial use only). Accept this licence? [y/N] ",
     });
     useClass = l.useClass;
-    licence = { useClass, acceptNonCommercialLicense: l.acceptNonCommercialLicense, ...(l.accepted ? { accepted: { by: l.accepted.by, at: l.accepted.at, licence: l.accepted.licence } } : {}) };
-    report.step("licence", "ok", `use class ${useClass}${l.acceptNonCommercialLicense ? `; CC BY-NC 4.0 accepted by ${l.accepted.by} at ${l.accepted.at}` : ""}`);
+    licence = { useClass, acceptNonCommercialLicense: l.acceptNonCommercialLicense, ...(l.accepted ? { accepted: { byHash: l.accepted.byHash, at: l.accepted.at, licence: l.accepted.licence } } : {}) };
+    report.step("licence", "ok", `use class ${useClass}${l.acceptNonCommercialLicense ? `; CC BY-NC 4.0 accepted by the current OS user at ${l.accepted.at}` : ""}`);
   }
   const acceptNc = Boolean(licence?.acceptNonCommercialLicense);
   report.set("licence", licence ?? { useClass, kept: true });

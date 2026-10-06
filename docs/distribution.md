@@ -230,6 +230,7 @@ Gateway, OpenClaw applies the install live.
 | `--yes` | Assume yes where a confirmation is optional (update: Now). |
 | `--dry-run` | Check and print the plan, change nothing. |
 | `--json` | One `plur1bus.plugin-installer/1` document on stdout. |
+| `--verbose`, `--debug` | When `openclaw`, `hermes` or `plur1bus` fails, print its full error text (default: the exit code and a short excerpt, see [Privacy](#privacy-what-is-read-written-and-snapshotted)). URLs stay redacted. |
 | `--state-dir <dir>` | OpenClaw state dir (sets `OPENCLAW_STATE_DIR` for OpenClaw). |
 | `--profile <name>` | OpenClaw profile (sets `OPENCLAW_PROFILE` for OpenClaw). |
 | `--lang de\|en` | Release-notes language. Default from `LANG`, else `en`. |
@@ -256,7 +257,7 @@ Identical for the bootstraps and the installer.
 | Variable | Effect |
 |---|---|
 | `PLUR1BUS_PLUGIN_CHANNEL` | Bootstraps: release channel `^[a-z0-9-]+$`, default `stable`. |
-| `PLUR1BUS_PLUGIN_FEED` | Bootstraps: feed URL, `{channel}` is replaced, **https only**. A supported mirror override that needs no test flag, because the feed signature is still verified with the key built into the script. The `.ps1` forwards it into a WSL distro. The installer bundle run directly ignores it unless the test flag is set; use `--feed` there. |
+| `PLUR1BUS_PLUGIN_FEED` | Bootstraps: feed URL, `{channel}` is replaced, **https only**. A supported mirror override that needs no test flag, because the feed signature is still verified with the key built into the script. The `.ps1` forwards it into a WSL distro. The installer bundle run directly honours it too when `--feed` is not given (use it instead of `--feed` for a mirror URL that carries a token: argv is visible in `ps`). |
 | `PLUR1BUS_ACCEPT_NONCOMMERCIAL_LICENSE=1` | Same as `--accept-nc-licence`. |
 | `OPENCLAW_STATE_DIR`, `OPENCLAW_PROFILE`, `OPENCLAW_HOME`, `OPENCLAW_CONFIG_READONLY`, `OPENCLAW_NIX_MODE` | OpenClaw's own, honoured as OpenClaw honours them. |
 
@@ -473,8 +474,9 @@ The recommended local model, Jina v5 Text Nano, is licensed CC BY-NC 4.0
   (MIT, `e5-multilingual-384`).
 - Non-interactive (`--non-interactive`, no terminal): E5-small, unless
   `--accept-nc-licence` or `PLUR1BUS_ACCEPT_NONCOMMERCIAL_LICENSE=1` is given.
-- An acceptance is recorded in the installer state and the report with who (OS
-  user), when, model, revision and licence.
+- An acceptance is recorded in the installer state and the report with who (a
+  short SHA-256 hash of the OS user name, `byHash`, never the name), when,
+  model, revision and licence.
 - An existing embedding choice wins: the gate is skipped and nothing is
   written. An install without an acceptance writes
   `acceptNonCommercialLicense: false` explicitly.
@@ -503,6 +505,16 @@ documented in the plugin repository:
   CLI. The scripts download only the feed, its signature, the installer
   bundle, the bootstraps and (default tarball source) the release tarball named
   by the signed feed; `--offline` downloads nothing.
+- Output redaction (audit K6 M-1, M-2, M-4). Every URL the installer prints or
+  puts into `--json` is shown as `scheme://host/…/<file>#h=<8 hex>`: userinfo,
+  query and path segments are dropped, so a mirror token never reaches a CI log.
+  Pass such a URL in `PLUR1BUS_PLUGIN_FEED`, not `--feed`. The OS user of a
+  licence acceptance is recorded as `byHash`. What `openclaw`, `hermes` and
+  `plur1bus` print on failure is reduced to the exit code and an excerpt of at
+  most 600 characters (first three or last two lines): lines that look like a
+  credential are dropped, the home directory is shown as `~`, long token-like
+  strings are masked. `--verbose` (alias `--debug`) prints the child's full error text,
+  which may quote host output; share such a log with care.
 - A snapshot contains the memory store and the plugin's run state files listed
   above, and never config or credentials.
 - The installer state file (`<stateDir>/memory/.plur1bus-installer.json`, mode

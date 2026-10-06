@@ -4,7 +4,11 @@
  * Human lines always go to stderr. With `--json`, `finish()` prints exactly one
  * `plur1bus.plugin-installer/1` document on stdout and nothing else is written
  * there (global constraint "--json").
+ *
+ * Every string that leaves through here has its URLs redacted (redact.mjs, audit K6 M-1).
  */
+
+import { redactDeep, redactUrls } from "./redact.mjs";
 
 export const REPORT_SCHEMA = "plur1bus.plugin-installer/1";
 
@@ -28,12 +32,13 @@ export function createReport({ json = false, stderr = process.stderr, stdout = p
   return {
     /** Record a step and print its human line. */
     step(id, status, detail = "") {
-      steps.push({ id, status, detail: String(detail) });
-      line(`[${MARK[status] ?? status}] ${id}${detail ? `: ${detail}` : ""}`);
+      const safe = redactUrls(String(detail));
+      steps.push({ id, status, detail: safe });
+      line(`[${MARK[status] ?? status}] ${id}${safe ? `: ${safe}` : ""}`);
     },
     /** A free human line (notice, summary, manual step). */
     note(text) {
-      line(text);
+      line(redactUrls(String(text)));
     },
     /** Set a top-level field of the JSON document. */
     set(key, value) {
@@ -48,7 +53,7 @@ export function createReport({ json = false, stderr = process.stderr, stdout = p
       if (finished) return exitCode;
       finished = true;
       if (json) {
-        const doc = { schema: REPORT_SCHEMA, ok: exitCode === EXIT.OK, exitCode, ...fields, steps };
+        const doc = { schema: REPORT_SCHEMA, ok: exitCode === EXIT.OK, exitCode, ...redactDeep(fields), steps };
         stdout.write(`${JSON.stringify(doc)}\n`);
       }
       return exitCode;

@@ -40,6 +40,7 @@ import { detectOpenclaw } from "./detect.mjs";
 import { PROFILE_MODELS, resolveLicence } from "./licence.mjs";
 import { createOpenclawCli, defaultRun, isReadonlyRefusal, PLUGIN_ID, failureSummary } from "./openclaw-cli.mjs";
 import { createReport, EXIT, Stop } from "./report.mjs";
+import { setVerbose, urlCarriesSecretShape } from "./redact.mjs";
 import { readState, writeState } from "./state.mjs";
 import { selftestForcedToFail, verifyInstall } from "./verify.mjs";
 import { keepArtefact, pruneArtefacts } from "./artefacts.mjs";
@@ -72,7 +73,8 @@ memory provider and its local sidecar into Hermes (--host hermes).
   --source clawhub|npm       install source (default: clawhub when the feed carries its ClawPack digest,
                              else the feed's GitHub-Release tarball, verified by SHA-256)
   --offline <tgz>            install a local tarball after its SHA-256 matched the feed
-  --feed <url>               signed plugin feed (default ${DEFAULT_FEED_URL})
+  --feed <url>               signed plugin feed (default ${DEFAULT_FEED_URL}); visible in the process list:
+                             put a mirror URL that carries a token in PLUR1BUS_PLUGIN_FEED instead
   --feed-file <path>         feed already verified by the bootstrap
   --accept-nc-licence        accept CC BY-NC 4.0 for Jina v5 Text Nano (also PLUR1BUS_ACCEPT_NONCOMMERCIAL_LICENSE=1)
   --non-interactive          never prompt (licence defaults to E5-small)
@@ -85,6 +87,8 @@ memory provider and its local sidecar into Hermes (--host hermes).
   --yes                      assume yes where a confirmation is optional (update: Now)
   --dry-run                  check and print the plan, change nothing
   --json                     one plur1bus.plugin-installer/1 document on stdout
+  --verbose, --debug         print the full error text of openclaw/hermes/plur1bus when one fails (default: exit code
+                             plus a short excerpt with URLs, tokens and home paths redacted); may quote host output
   --state-dir <dir>          OpenClaw state dir (sets OPENCLAW_STATE_DIR for OpenClaw)
   --profile <name>           OpenClaw profile (sets OPENCLAW_PROFILE for OpenClaw)
   --lang de|en               release-notes language (default from LANG, else en)
@@ -120,6 +124,8 @@ const OPTIONS = {
   yes: { type: "boolean", default: false },
   "dry-run": { type: "boolean", default: false },
   json: { type: "boolean", default: false },
+  verbose: { type: "boolean", default: false },
+  debug: { type: "boolean", default: false },
   "state-dir": { type: "string" },
   profile: { type: "string" },
   lang: { type: "string" },
@@ -171,7 +177,7 @@ export async function loadFeed({ values, env, testMode, fetchImpl, host = "openc
       throw new Stop(EXIT.FAILED, "feed", `cannot read --feed-file ${values["feed-file"]}: ${err.code ?? err.message}`);
     }
   } else {
-    const url = values.feed ?? (testMode && env.PLUR1BUS_PLUGIN_FEED ? env.PLUR1BUS_PLUGIN_FEED : DEFAULT_FEED_URL);
+    const url = values.feed ?? (env.PLUR1BUS_PLUGIN_FEED || DEFAULT_FEED_URL);
     origin = url;
     bytes = await readUrl(url, { testMode, fetchImpl });
     const sig = (await readUrl(`${url}.minisig`, { testMode, fetchImpl })).toString("utf8");
@@ -254,6 +260,7 @@ export async function runInstaller(argv, opts = {}) {
   try {
     ({ values } = parseArgs({ args: argv, options: OPTIONS, strict: true, allowPositionals: false }));
   } catch (err) {
+    setVerbose(false);
     const report = createReport({ json: argv.includes("--json"), stdout, stderr });
     report.step("args", "failed", `${err.message} (see --help)`);
     return report.finish(EXIT.FAILED);
@@ -263,7 +270,9 @@ export async function runInstaller(argv, opts = {}) {
     return EXIT.OK;
   }
 
+  setVerbose(values.verbose || values.debug, [env.HOME, env.USERPROFILE]);
   const report = createReport({ json: values.json, stdout, stderr });
+  if (values.feed && urlCarriesSecretShape(values.feed)) report.note("Note: the --feed URL carries a query or credentials and is visible in the process list; pass it in PLUR1BUS_PLUGIN_FEED instead.");
   const mode = values.uninstall ? "uninstall" : values["adopt-legacy"] ? "adopt-legacy" : values.update ? "update" : "install";
   report.set("host", values.host);
   report.set("mode", mode);
@@ -570,7 +579,7 @@ async function applyInstall(ctx) {
       await set(`${C}.modelPreparation.acceptNonCommercialLicense`, licence.acceptNonCommercialLicense ? "true" : "false");
       await set(`${C}.embedding.provider`, "local-transformers");
       await set(`${C}.embedding.model`, PROFILE_MODELS[licence.profile].model);
-      report.step("licence", "ok", `${licence.profile} (${PROFILE_MODELS[licence.profile].model})${licence.accepted ? `; CC BY-NC 4.0 accepted by ${licence.accepted.by} at ${licence.accepted.at}` : ""}`);
+      report.step("licence", "ok", `${licence.profile} (${PROFILE_MODELS[licence.profile].model})${licence.accepted ? `; CC BY-NC 4.0 accepted by the current OS user at ${licence.accepted.at}` : ""}`);
     }
     await set(ALLOW_CONVERSATION, "true");
     await cli.configSet(SLOT, PLUGIN_ID);
