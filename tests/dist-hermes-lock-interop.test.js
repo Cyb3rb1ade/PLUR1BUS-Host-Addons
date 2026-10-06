@@ -22,7 +22,8 @@
 
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { spawn, spawnSync } from "node:child_process";
+import { spawn } from "node:child_process";
+import { spawnSyncBounded as spawnSync } from "./helpers/run-sync.js";
 import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readdirSync, readFileSync, utimesSync, writeFileSync } from "node:fs";
 import { hostname } from "node:os";
@@ -47,7 +48,13 @@ const CROSS_ROUNDS = [["py", "js"], ["js", "py"], ["py", "js"], ["js", "py"]]; /
 function findPython() {
   const candidates = process.platform === "win32" ? [["python"], ["py", "-3"], ["python3"]] : [["python3"], ["python"]];
   for (const [cmd, ...pre] of candidates) {
-    const r = spawnSync(cmd, [...pre, "-c", "import sys; print(int(sys.version_info >= (3, 11)))"], { encoding: "utf8", timeout: 20_000, windowsHide: true });
+    let r;
+    try {
+      r = spawnSync(cmd, [...pre, "-c", "import sys; print(int(sys.version_info >= (3, 11)))"], { encoding: "utf8", timeout: 20_000, windowsHide: true });
+    } catch (e) {
+      if (e?.code !== "ETIMEDOUT") throw e;
+      continue; // a launcher that hangs is not a usable Python; the CI requirement test below then fails loudly
+    }
     if (r.status === 0 && r.stdout.trim() === "1") return [cmd, ...pre];
   }
   return null;

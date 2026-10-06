@@ -4,7 +4,8 @@
 
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { spawn, spawnSync } from "node:child_process";
+import { spawn } from "node:child_process";
+import { spawnSyncBounded as spawnSync } from "./helpers/run-sync.js";
 import { createHash } from "node:crypto";
 import { existsSync, linkSync, lstatSync, mkdirSync, openSync, renameSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, symlinkSync, utimesSync, writeFileSync } from "node:fs";
 import { hostname } from "node:os";
