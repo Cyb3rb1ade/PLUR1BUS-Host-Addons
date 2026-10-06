@@ -61,8 +61,10 @@ export function lastJson(text) {
 }
 
 function run(file, args, { env = process.env, input, timeoutMs = 1_800_000 } = {}) {
-  const r = spawnSync(file, args, { env, input, encoding: "utf8", timeout: timeoutMs, maxBuffer: 64 << 20, shell: false });
-  return { code: r.status, stdout: r.stdout ?? "", stderr: `${r.stderr ?? ""}${r.error ? `\n[spawn: ${r.error.message}]` : ""}` };
+  const r = spawnSync(file, args, { env, input, encoding: "utf8", timeout: timeoutMs, killSignal: "SIGKILL", maxBuffer: 64 << 20, shell: false });
+  // A timed-out child was SIGKILLed: say so by name (code stays null, so every caller fails on it).
+  const note = r.error?.code === "ETIMEDOUT" ? `\n[spawn: timed out after ${timeoutMs} ms and was killed (SIGKILL): ${[file, ...args].join(" ").slice(0, 300)}]` : r.error ? `\n[spawn: ${r.error.message}]` : "";
+  return { code: r.status, stdout: r.stdout ?? "", stderr: `${r.stderr ?? ""}${note}` };
 }
 
 /** A re-run's document: ok, and the update step (install.mjs F17 hand-over / update.mjs) says up-to-date. */

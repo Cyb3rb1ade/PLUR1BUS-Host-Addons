@@ -7,7 +7,7 @@
   "license": "MIT",
   "scripts": {
     "lint": "find scripts tests -name '*.mjs' -exec node --check {} + && find tests -name '*.js' -exec node --check {} +",
-    "test": "node --test --test-concurrency=1 tests/*.test.js",
+    "test": "node --test --test-concurrency=1 --test-timeout=120000 tests/*.test.js",
     "build:installer": "node scripts/dist/build-installer.mjs",
     "build:bootstraps": "node scripts/dist/render-bootstraps.mjs"
   },

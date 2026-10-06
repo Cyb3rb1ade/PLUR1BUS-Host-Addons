@@ -54,11 +54,19 @@ on:
         description: Name of the pack artefact (plugin tarball, its -ci.0 twin, installer bundle, TEST ONLY bootstraps, pack.json)
         value: ${{ jobs.pack.outputs.artifact }}
 
+# A newer push to the same pull request supersedes the running matrix; a nightly, a manual run and a release (called
+# from addons-release.yml, event workflow_dispatch) are never cancelled. The group name is literal, not
+# github.workflow: in a called workflow that is the CALLER's name, which would put this group on addons-release.yml's
+# own `addons-release-<ref>` group and queue the called run behind the run that is waiting for it.
+concurrency:
+  group: plugin-dist-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   pack:
     name: pack
     runs-on: ubuntu-24.04
-    timeout-minutes: 45
+    timeout-minutes: 10
     outputs:
       version: ${{ steps.pack.outputs.version }}
       ci-version: ${{ steps.pack.outputs.ci-version }}
@@ -231,7 +239,7 @@ jobs:
       vars.HM2_SIDECAR_RELEASED != 'true' &&
       (github.event_name != 'workflow_dispatch' || inputs.only == '' || inputs.only == 'hermes' || inputs.only == 'hermes-wsl' || inputs.only == 'build-sidecar')
     runs-on: ${{ matrix.runner }}
-    timeout-minutes: 60
+    timeout-minutes: 15
     strategy:
       fail-fast: false
       matrix:
@@ -342,7 +350,7 @@ jobs:
     needs: pack
     if: github.event_name != 'workflow_dispatch' || inputs.only == '' || inputs.only == 'install'
     runs-on: ${{ matrix.runner }}
-    timeout-minutes: 150
+    timeout-minutes: ${{ startsWith(matrix.runner, 'windows-11-arm') && 95 || (startsWith(matrix.runner, 'windows') && 70 || 35) }}
     strategy:
       fail-fast: false
       matrix:
@@ -465,7 +473,7 @@ jobs:
     if: github.event_name != 'workflow_dispatch' || inputs.only == '' || inputs.only == 'wsl'
     runs-on: windows-2025
     continue-on-error: true
-    timeout-minutes: 120
+    timeout-minutes: 15
     defaults:
       run:
         shell: bash
@@ -518,7 +526,7 @@ jobs:
     if: github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && (inputs.only == '' || inputs.only == 'upgrade-from-release'))
     runs-on: ubuntu-24.04
     continue-on-error: true
-    timeout-minutes: 120
+    timeout-minutes: 30
     defaults:
       run:
         shell: bash
@@ -619,7 +627,7 @@ jobs:
       (needs.build-sidecar.result == 'success' || needs.build-sidecar.result == 'skipped') &&
       (github.event_name != 'workflow_dispatch' || inputs.only == '' || inputs.only == 'hermes')
     runs-on: ${{ matrix.runner }}
-    timeout-minutes: 90
+    timeout-minutes: ${{ startsWith(matrix.runner, 'windows') && 80 || (startsWith(matrix.runner, 'macos') && 15 || 10) }}
     strategy:
       fail-fast: false
       matrix:
@@ -788,7 +796,7 @@ jobs:
       (needs.build-sidecar.result == 'success' || needs.build-sidecar.result == 'skipped') &&
       (github.event_name != 'workflow_dispatch' || inputs.only == '' || inputs.only == 'hermes-wsl')
     runs-on: windows-2025
-    timeout-minutes: 120
+    timeout-minutes: 20
     env:
       PLUR1BUS_PLUGIN_INSTALLER_TEST: '1'
       PLUR1BUS_PLUGIN_TEST_NO_SERVICE: '1'

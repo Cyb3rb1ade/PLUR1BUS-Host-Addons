@@ -3,7 +3,8 @@
 // waits for the 3+3 interop contention phase (8 s). Workers log timestamps
 // when PLUR1BUS_LOCK_TEST_TIMES=1 (ignored by checkEvents). Does not raise
 // the interop timeout. See docs/lock-fr-l1-analysis.md.
-import { spawn, spawnSync } from "node:child_process";
+import { spawn } from "node:child_process";
+import { spawnSyncBounded as spawnSync } from "./run-sync.js";
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
