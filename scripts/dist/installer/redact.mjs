@@ -35,7 +35,7 @@ const sha256hex = (s) => createHash("sha256").update(s).digest("hex");
 
 // ── URLs ────────────────────────────────────────────────────────────────────
 const URL_RE = /\b[a-z][a-z0-9+.-]*:\/\/(?=[\w[%/-])[^\s"'`<>)\]|]+/gi;
-const SAFE_FILE_RE = /^[A-Za-z0-9._-]{1,64}\.(?:json|minisig|tgz|tar\.gz|mjs|sh|ps1|zip)$/;
+const SAFE_FILE_RE = /^[A-Za-z0-9._-]{1,64}\.(?:json|minisig|tgz|tar\.gz|tar\.xz|mjs|sh|ps1|zip)$/;
 
 /** @param {string} url */
 export function redactUrl(url) {
@@ -56,8 +56,20 @@ export function redactUrl(url) {
 export function redactUrls(text) {
   return String(text).replace(URL_RE, (m) => {
     const trail = /[.,;:!?]+$/.exec(m)?.[0] ?? "";
-    return redactUrl(trail ? m.slice(0, -trail.length) : m) + trail;
+    const url = trail ? m.slice(0, -trail.length) : m;
+    return (isKnownPlainUrl(url) ? url : redactUrl(url)) + trail;
   });
+}
+
+/** Hosts of the installer's own help links and default feed; shown as written when nothing in the URL can hold a secret. */
+const KNOWN_HOSTS = new Set(["docs.openclaw.ai", "hermes-agent.nousresearch.com", "updates.plur1bus.app"]);
+function isKnownPlainUrl(url) {
+  try {
+    const u = new URL(url);
+    return u.protocol === "https:" && KNOWN_HOSTS.has(u.hostname) && !u.username && !u.password && !u.search && !url.includes("#");
+  } catch {
+    return false;
+  }
 }
 
 /** Deep copy of a JSON-like value with every string passed through `redactUrls`. */
@@ -82,12 +94,17 @@ export function urlCarriesSecretShape(url) {
 /** Short, stable identifier of the accepting OS user (ADR-006 "who", K6 M-2); the name itself is never kept. */
 export const userHash = (user) => sha256hex(`plur1bus-licence-acceptance\0${String(user)}`).slice(0, 8);
 
-/** A licence record safe to persist: a legacy `accepted.by` (user name) becomes `byHash`. */
+/** A licence record safe to persist: a legacy `by` (user name), flat or under `accepted`, becomes `byHash`. */
 export function publicLicence(licence) {
-  const a = licence?.accepted;
-  if (!a || typeof a !== "object" || !("by" in a)) return licence;
-  const { by, ...rest } = a;
-  return { ...licence, accepted: { byHash: rest.byHash ?? userHash(by), ...rest } };
+  const strip = (a) => {
+    if (!a || typeof a !== "object" || !("by" in a)) return a;
+    const { by, ...rest } = a;
+    return { byHash: rest.byHash ?? userHash(by), ...rest };
+  };
+  if (!licence || typeof licence !== "object") return licence;
+  // OpenClaw's state file keeps the acceptance itself under `licence` ({ by, at, … }); Hermes nests it ({ useClass, accepted })
+  const flat = strip(licence);
+  return flat.accepted ? { ...flat, accepted: strip(flat.accepted) } : flat;
 }
 
 // ── child-process text ──────────────────────────────────────────────────────

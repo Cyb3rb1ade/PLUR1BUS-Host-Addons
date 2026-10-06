@@ -12,6 +12,9 @@ import { createOpenclawCli, failureSummary } from "../scripts/dist/installer/ope
 import { createPlur1busCli } from "../scripts/dist/installer/hermes/plur1bus-cli.mjs";
 import { createHermesCli } from "../scripts/dist/installer/hermes/hermes-cli.mjs";
 import { createReport, EXIT } from "../scripts/dist/installer/report.mjs";
+import { readState, statePath, writeState } from "../scripts/dist/installer/state.mjs";
+import { hermesStatePath, writeHermesState } from "../scripts/dist/installer/hermes/state.mjs";
+import { makeTempDir } from "./helpers/temp-dir.js";
 import { publicLicence, redactUrl, redactUrls, scrubText, setVerbose, userHash } from "../scripts/dist/installer/redact.mjs";
 import { createInstallerSandbox, runSandboxInstaller, sink } from "./helpers/installer-sandbox.js";
 
@@ -70,6 +73,35 @@ describe("redact: URLs, user hash, child text", { timeout: 120_000 }, () => {
     assert.equal(l.accepted.byHash, userHash(USER));
     assert.equal(l.accepted.at, "2026-01-01T00:00:00.000Z");
     assert.deepEqual(publicLicence({ useClass: "general" }), { useClass: "general" });
+  });
+
+  it("the installer's own help links stay readable; anything that could hold a secret does not", () => {
+    const own = "install Hermes first (https://hermes-agent.nousresearch.com); or https://docs.openclaw.ai/install.";
+    assert.equal(redactUrls(own), own);
+    assert.equal(redactUrls("https://updates.plur1bus.app/plugin/stable.json"), "https://updates.plur1bus.app/plugin/stable.json");
+    assert.doesNotMatch(redactUrls(`https://docs.openclaw.ai/install?token=${TOKEN}`), new RegExp(TOKEN));
+    assert.doesNotMatch(redactUrls(`https://updates.plur1bus.app/x#${TOKEN}`), new RegExp(TOKEN));
+    assert.doesNotMatch(redactUrls(`https://other.example/docs/${TOKEN}`), new RegExp(TOKEN));
+  });
+
+  it("old-shape state files lose the OS user name on the next write (OpenClaw flat record, Hermes nested record)", () => {
+    // OpenClaw: `licence` is the acceptance itself
+    const stateDir = makeTempDir("plur1bus-privacy-state-");
+    writeState(stateDir, { previousSlot: null, installedVersion: "7.16.10", source: "npm", licence: { by: USER, at: "2026-01-01T00:00:00.000Z", model: "m", revision: "r", licence: "CC-BY-NC-4.0" } });
+    const raw = readFileSync(statePath(stateDir), "utf8");
+    assert.doesNotMatch(raw, new RegExp(USER));
+    const lic = readState(stateDir).licence;
+    assert.equal(lic.by, undefined);
+    assert.equal(lic.byHash, userHash(USER));
+    assert.equal(lic.at, "2026-01-01T00:00:00.000Z");
+    // an update or rollback re-writes what it read: the migrated record stays migrated
+    writeState(stateDir, { ...readState(stateDir), previousSlot: "memory-core" });
+    assert.doesNotMatch(readFileSync(statePath(stateDir), "utf8"), new RegExp(USER));
+    // Hermes: { useClass, accepted: { by, … } }
+    const home = makeTempDir("plur1bus-privacy-hermes-");
+    writeHermesState(home, { licence: { useClass: "general", acceptNonCommercialLicense: true, accepted: { by: USER, at: "2026-01-01T00:00:00.000Z", licence: "CC-BY-NC-4.0" } } });
+    assert.doesNotMatch(readFileSync(hermesStatePath(home), "utf8"), new RegExp(USER));
+    assert.equal(JSON.parse(readFileSync(hermesStatePath(home), "utf8")).licence.accepted.byHash, userHash(USER));
   });
 
   it("scrubText drops credential lines, redacts URLs and long tokens, and is bounded", () => {

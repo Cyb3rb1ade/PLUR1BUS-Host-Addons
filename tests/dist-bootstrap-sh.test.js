@@ -236,6 +236,15 @@ describe("install-plugin.sh", { skip: SKIP }, () => {
     assert.equal(c.installer(), null);
   });
 
+  it("a mirror feed URL with a token in PLUR1BUS_PLUGIN_FEED is never echoed (K6 M-1)", () => {
+    const c = makeBootstrapCase({ feedUrl: "http://mirror.example/p/MARKERTOKEN/stable.json?token=MARKERTOKEN" });
+    const r = c.run([]);
+    assert.equal(r.code, 1, r.out);
+    assert.doesNotMatch(r.out, /MARKERTOKEN/);
+    assert.match(r.stderr, /must be https:\/\/: http:\/\/mirror\.example\/\.\.\.\/stable\.json/);
+    assert.equal(c.installer(), null);
+  });
+
   it("no openclaw exits 3", () => {
     const c = makeBootstrapCase({ openclaw: false });
     const r = c.run([]);
@@ -278,8 +287,8 @@ describe("install-plugin.sh", { skip: SKIP }, () => {
     assert.equal(r.code, 0, r.out);
     assert.ok(c.installer(), `installer did not run: ${r.out}`);
     assert.deepEqual(c.curlUrls(), [`file://${c.root}/mnt/d/feed/stable.json`, `file://${c.root}/mnt/d/feed/stable.json.minisig`, `file://${c.root}/mnt/d/fake-installer.mjs`]);
-    assert.match(r.stderr, /downloading file:\/\/\/\.\.\./, "messages carry scheme and host only (K6 M-1)");
-    assert.doesNotMatch(r.stderr, /fake-installer\.mjs/);
+    assert.match(r.stderr, /downloading file:\/\/\/\.\.\.\/fake-installer\.mjs/, "messages keep scheme, host and file name, not the path (K6 M-1)");
+    assert.doesNotMatch(r.stderr, /D:\/fake-installer/);
 
     const off = makeBootstrapCase({ wslpath: true, testFlag: false, feedUrl: "file:///D:/feed/{channel}.json" });
     const r2 = off.run([]);
@@ -447,7 +456,7 @@ describe("install-plugin.sh --host hermes", { skip: SKIP }, () => {
     const c = makeHermesCase();
     const r = c.run(["--host", "hermes"], renderWithPins("f".repeat(64)));
     assert.equal(r.code, 1, r.out);
-    assert.match(r.stderr, /checksum mismatch for file:\/\/\/\.\.\. expected f{64}/);
+    assert.match(r.stderr, /checksum mismatch for file:\/\/\/\.\.\.\/node-v24\.21\.0\S* expected f{64}/);
     assert.equal(c.installer(), null);
     assert.deepEqual(c.nodeCalls(), [], "nothing ran");
     assert.equal(existsSync(c.cachedArchive), false, "a mismatching download is not cached");

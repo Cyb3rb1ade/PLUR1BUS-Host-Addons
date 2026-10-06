@@ -37,9 +37,12 @@ PUBKEY_STABLE='@@PUBKEY_STABLE@@'
 PUBKEY_BETA='@@PUBKEY_BETA@@'
 
 # redact_urls: every URL in the text on stdin loses userinfo, query, fragment and path (audit K6 M-1: a mirror URL may
-# carry a token and these lines end up in CI logs). Only scheme and host remain.
+# carry a token and these lines end up in CI logs). Scheme, host and a plain file name with a known extension remain.
 redact_urls() {
-  sed -E 's~([a-zA-Z][a-zA-Z0-9+.-]*://)([^/?#[:space:]@]*@)?([^/?#[:space:]]*)[^[:space:]"]*~\1\3/...~g'
+  # file:/// has an empty host: give it a placeholder so the one rule below applies; "https://:" (a message) has none and is left alone
+  sed -E -e 's~(file://)/~\1{L}/~g' \
+    -e 's~([a-zA-Z][a-zA-Z0-9+.-]*://)([^/?#[:space:]@]*@)?([^/?#[:space:]:@][^/?#[:space:]]*)((/[^[:space:]"?#]*)?/([A-Za-z0-9._-]+\.(json|minisig|tgz|tar\.gz|tar\.xz|mjs|sh|ps1|zip)))?[^[:space:]"]*~\1\3/...{F}\6~g' \
+    -e 's~\{F\}([A-Za-z0-9._-]+)~/\1~g; s~\{F\}~~g; s~\{L\}~~g'
 }
 
 fail() {

@@ -421,6 +421,15 @@ describe("install-plugin.ps1", { skip: PS_SKIP }, () => {
         assert.equal(c.installer(), null);
       });
 
+      it("a mirror feed URL with a token in PLUR1BUS_PLUGIN_FEED is never echoed (K6 M-1)", () => {
+        const c = makePsCase({ shell, extraEnv: { PLUR1BUS_PLUGIN_FEED: "http://mirror.example/p/MARKERTOKEN/stable.json?token=MARKERTOKEN" } });
+        const r = c.run([]);
+        assert.equal(r.code, 1, r.out);
+        assert.doesNotMatch(r.out, /MARKERTOKEN/);
+        assert.match(r.stderr, /must be https:\/\/: http:\/\/mirror\.example\/\.\.\.\/stable\.json/);
+        assert.equal(c.installer(), null);
+      });
+
       it("several candidates without -Target exit 2 and list native and wsl:Ubuntu-24.04", () => {
         const c = makePsCase({ shell, distros: [{ name: UBUNTU, running: true, openclaw: true }, { name: "docker-desktop", running: true, openclaw: false }] });
         const r = c.run(["--json"]);

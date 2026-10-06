@@ -61,8 +61,24 @@ function Fail([int]$code, [string]$message) {
   throw $e
 }
 
+# Protect-Urls: every URL in the text loses userinfo, query, fragment and path (audit K6 M-1: a mirror URL in
+# PLUR1BUS_PLUGIN_FEED may carry a token and these lines end up in CI logs). Scheme, host and a plain file name with a
+# known extension remain.
+function Protect-Urls([string]$text) {
+  return [regex]::Replace($text, '(?i)\b([a-z][a-z0-9+.-]*://)(?=[\w\[%/-])(?:[^/?#\s@]*@)?([^/?#\s]*)([^\s"]*)', {
+    param($m)
+    $path = $m.Groups[3].Value
+    $cut = $path.IndexOfAny([char[]]@('?', '#'))
+    if ($cut -ge 0) { $path = $path.Substring(0, $cut) }
+    $leaf = $path.Substring($path.LastIndexOf('/') + 1)
+    $file = ''
+    if ($leaf -cmatch '^[A-Za-z0-9._-]+\.(json|minisig|tgz|tar\.gz|tar\.xz|mjs|sh|ps1|zip)$') { $file = "/$leaf" }
+    return $m.Groups[1].Value + $m.Groups[2].Value + '/...' + $file
+  })
+}
+
 function Say([string]$message) {
-  [Console]::Error.WriteLine("install-plugin: $message")
+  [Console]::Error.WriteLine("install-plugin: $(Protect-Urls $message)")
 }
 
 # win-x64 | win-arm64, or $null outside the release matrix. PROCESSOR_ARCHITEW6432 is the real architecture when this
@@ -689,7 +705,7 @@ try {
   $ex = $_.Exception
   $exitCode = 1
   if ($ex.Data.Contains('exitCode')) { $exitCode = [int]$ex.Data['exitCode'] }
-  [Console]::Error.WriteLine("install-plugin: $($ex.Message)")
+  [Console]::Error.WriteLine("install-plugin: $(Protect-Urls $ex.Message)")
 } finally {
   if ($tmp) { Remove-Item -LiteralPath $tmp -Recurse -Force -ErrorAction SilentlyContinue }
   foreach ($name in $savedEnv.Keys) { [Environment]::SetEnvironmentVariable($name, $savedEnv[$name], 'Process') }
