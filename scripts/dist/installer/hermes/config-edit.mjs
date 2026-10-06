@@ -197,7 +197,7 @@ function writeKeepingMode(file, text, mode) {
  * Set memory.provider by a line edit. The first edit of a run keeps a backup.
  * @returns {{ backup: string|null, undo: object }}
  */
-export function setProviderLine({ hermesHome, value, now = Date.now, backup = true, onPlan = null }) {
+export function setProviderLine({ hermesHome, value, now = Date.now, backup = true, onPlan = null, platform = process.platform, execFile }) {
   const { file, link, text, mode } = readConfig(hermesHome);
   if (text === undefined) throw new Error("config.yaml is larger than 4 MiB");
   if (text === null && file !== link) throw new Error("config.yaml is a symlink to a missing file");
@@ -207,10 +207,10 @@ export function setProviderLine({ hermesHome, value, now = Date.now, backup = tr
   let bak = null;
   if (text !== null && backup) {
     bak = `${link}.plur1bus-bak-${new Date(now()).toISOString().replace(/[:.]/g, "-")}`;
-    if (process.platform === "win32") {
+    if (platform === "win32") {
       // M-6: config.yaml may hold API keys; the copy is user-and-SYSTEM-only before its first byte (fail closed)
       rmSync(bak, { force: true });
-      writePrivateFileExclusive(bak, readFileSync(file));
+      writePrivateFileExclusive(bak, readFileSync(file), { platform, ...(execFile ? { execFile } : {}) });
     } else {
       copyFileSync(file, bak);
       chmodSync(bak, 0o600);

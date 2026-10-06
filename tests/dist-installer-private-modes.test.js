@@ -71,10 +71,15 @@ describe("ensurePrivateDir", { skip: posixOnly, ...T }, () => {
     mkdirSync(d);
     chmodSync(d, 0o755);
     const ran = [];
-    const execFile = (cmd) => { ran.push(win32.basename(cmd, ".exe")); return cmd.endsWith("whoami.exe") ? '"h\\u","S-1-5-21-1-2-3-1001"' : ""; };
+    const execFile = (cmd, args) => {
+      ran.push(win32.basename(cmd, ".exe"));
+      // icacls /save: the DACL read back holds only the user and SYSTEM
+      if (args?.[1] === "/save") writeFileSync(args[2], Buffer.from("D:PAI(A;OICI;FA;;;S-1-5-21-1-2-3-1001)(A;OICI;FA;;;SY)\r\n", "utf16le"));
+      return cmd.endsWith("whoami.exe") ? '"h\\u","S-1-5-21-1-2-3-1001"' : "";
+    };
     ensurePrivateDir(d, { platform: "win32", execFile });
     assert.equal(mode(d), 0o755);
-    assert.deepEqual(ran, ["whoami", "icacls"]);
+    assert.deepEqual(ran, ["whoami", "icacls", "icacls"], "grant, then the DACL is read back");
   });
 });
 
