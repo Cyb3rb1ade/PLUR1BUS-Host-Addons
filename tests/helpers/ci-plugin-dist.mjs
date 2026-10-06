@@ -89,7 +89,8 @@ function parseListing(stdout) {
 /** Run a program with raw stdout bytes; never rejects. */
 function runBytes(file, args, { env, timeoutMs = 3_600_000, input } = {}) {
   if (input !== undefined) {
-    const r = spawnSync(file, args, { env, input, timeout: timeoutMs, maxBuffer: 256 * 1024 * 1024, windowsHide: true });
+    const r = spawnSync(file, args, { env, input, timeout: timeoutMs, killSignal: "SIGKILL", maxBuffer: 256 * 1024 * 1024, windowsHide: true });
+    // A timed-out child was SIGKILLed; its message (ETIMEDOUT) lands in stderr and the code is non-zero, so callers fail.
     return Promise.resolve({ code: r.status ?? (r.error ? 127 : 1), stdout: r.stdout ?? Buffer.alloc(0), stderr: String(r.stderr ?? "") + (r.error ? `\n${r.error.message}` : "") });
   }
   return new Promise((done) => {

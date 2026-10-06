@@ -21,14 +21,14 @@
  * and skips what is done) or undone with `--rollback` (F19).
  */
 
-import { chmodSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { chmodSync, copyFileSync, existsSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { compareStoreWithSnapshot, createSnapshot, restoreSnapshot, SnapshotError } from "../../../../vendor/plur1bus-memory/lib/snapshot/store-snapshot.js";
 import { compareVersions } from "../../build-plugin-feed.mjs";
 import { resolveTarget } from "../compat.mjs";
-import { writeFileAtomic } from "../fsutil.mjs";
+import { ensurePrivateDir, writeFileAtomic } from "../fsutil.mjs";
 import { EXIT, Stop } from "../report.mjs";
 import { sha256Hex } from "../untar.mjs";
 import { fetchBytes } from "../update.mjs";
@@ -57,13 +57,17 @@ export function hermesNotesBetween(feed, installed, target, lang) {
 
 /** Save `<home>/{manifest,config}.json` byte for byte (with their modes); a missing file is recorded as missing. */
 export function saveHomeFiles(home, now = Date.now) {
+  // K6: <home>/backups and everything under it is private (config.json may carry settings; the snapshots hold memories)
+  ensurePrivateDir(join(home, "backups"));
+  ensurePrivateDir(homeBackupRoot(home));
   const dir = join(homeBackupRoot(home), String(now()));
-  mkdirSync(dir, { recursive: true });
+  ensurePrivateDir(dir);
   const files = {};
   for (const name of HOME_FILES) {
     const p = join(home, name);
     if (existsSync(p)) {
       copyFileSync(p, join(dir, name));
+      if (process.platform !== "win32") chmodSync(join(dir, name), 0o600); // the original's mode is recorded and restored
       files[name] = { mode: statSync(p).mode & 0o777 };
     } else {
       files[name] = null;
@@ -86,8 +90,13 @@ export function restoreHomeFiles(home, backup) {
   }
 }
 
-async function snapshotStore({ report, home, label, now }) {
+export async function snapshotStore({ report, home, label, now }) {
   try {
+    // K6: the live store sits under the harness's 0700 state dir; its copy must not land in a 0755 one
+    if (existsSync(storePath(home))) {
+      ensurePrivateDir(join(home, "backups"));
+      ensurePrivateDir(snapshotsDirOf(home));
+    }
     const snap = await createSnapshot({ stateDir: home, baseDbPath: storePath(home), snapshotsDir: snapshotsDirOf(home), label, now });
     report.step("snapshot", "ok", `${snap.id} (${snap.files} files) under ${snapshotsDirOf(home)}`);
     for (const w of snap.warnings ?? []) report.note(`  snapshot warning: ${w}`);

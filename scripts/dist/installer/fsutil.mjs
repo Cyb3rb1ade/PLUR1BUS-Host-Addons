@@ -6,7 +6,7 @@
  * ever hard-links (R-S8).
  */
 
-import { closeSync, fsyncSync, mkdirSync, openSync, renameSync, rmSync, writeSync } from "node:fs";
+import { chmodSync, closeSync, fsyncSync, lstatSync, mkdirSync, openSync, renameSync, rmSync, writeSync } from "node:fs";
 import { dirname } from "node:path";
 
 const WIN_RETRY = new Set(["EPERM", "EBUSY", "EACCES"]);
@@ -30,6 +30,20 @@ export function withWinRetry(fn, { platform = process.platform } = {}) {
 
 export function renameWithRetry(from, to) {
   return withWinRetry(() => renameSync(from, to));
+}
+
+/**
+ * `mkdir -p` with mode 0700 for a directory that holds memory content (store snapshots, home-file backups, K6):
+ * created ones get 0700 whatever the umask, an existing one is narrowed to 0700 on POSIX, so snapshots an earlier
+ * version left under a 0755 root become unreachable for other users too. A symlink is never chmod-ed (the snapshot
+ * module's own path checks decide about it). Windows: this repo has no ACL helper; the directory inherits its
+ * parent's ACL (the user profile's, by default private).
+ */
+export function ensurePrivateDir(path, { platform = process.platform } = {}) {
+  mkdirSync(path, { recursive: true, mode: 0o700 });
+  if (platform === "win32") return;
+  const st = lstatSync(path);
+  if (st.isDirectory() && (st.mode & 0o777) !== 0o700) chmodSync(path, 0o700);
 }
 
 export function rmTree(path) {
