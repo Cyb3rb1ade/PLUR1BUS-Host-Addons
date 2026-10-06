@@ -17,7 +17,7 @@
 import { chmodSync, copyFileSync, existsSync, lstatSync, readFileSync, realpathSync, rmSync, statSync } from "node:fs";
 import { join } from "node:path";
 
-import { writeFileAtomic } from "../fsutil.mjs";
+import { writeFileAtomic, writePrivateFileExclusive } from "../fsutil.mjs";
 
 export const CONFIG_FILE = "config.yaml";
 const MAX_BYTES = 4 * 1024 * 1024;
@@ -207,8 +207,14 @@ export function setProviderLine({ hermesHome, value, now = Date.now, backup = tr
   let bak = null;
   if (text !== null && backup) {
     bak = `${link}.plur1bus-bak-${new Date(now()).toISOString().replace(/[:.]/g, "-")}`;
-    copyFileSync(file, bak);
-    if (process.platform !== "win32") chmodSync(bak, 0o600);
+    if (process.platform === "win32") {
+      // M-6: config.yaml may hold API keys; the copy is user-and-SYSTEM-only before its first byte (fail closed)
+      rmSync(bak, { force: true });
+      writePrivateFileExclusive(bak, readFileSync(file));
+    } else {
+      copyFileSync(file, bak);
+      chmodSync(bak, 0o600);
+    }
   }
   // the caller records the undo before the file changes, so a killed run can still be rolled back
   if (onPlan) onPlan({ backup: bak, undo: plan.undo });

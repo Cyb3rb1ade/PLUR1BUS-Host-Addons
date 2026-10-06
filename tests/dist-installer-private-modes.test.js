@@ -4,7 +4,7 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { chmodSync, existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, statSync, symlinkSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { join, win32 } from "node:path";
 
 import { ensurePrivateDir } from "../scripts/dist/installer/fsutil.mjs";
 import { createReport } from "../scripts/dist/installer/report.mjs";
@@ -13,7 +13,7 @@ import { writeState } from "../scripts/dist/installer/state.mjs";
 import { homeBackupRoot, restoreHomeFiles, saveHomeFiles, snapshotStore, snapshotsDirOf, storePath } from "../scripts/dist/installer/hermes/update.mjs";
 import { makeTempDir } from "./helpers/temp-dir.js";
 
-const posixOnly = process.platform === "win32" ? "POSIX modes (this repo has no Windows ACL helper)" : false;
+const posixOnly = process.platform === "win32" ? "POSIX modes (the Windows ACL is tested in dist-installer-windows-acl.test.js)" : false;
 const MEMORY_MARKER = "K6-MEMORY-MARKER-7f3c1e";
 const CONFIG_MARKER = "K6-CONFIG-MARKER-d41a09";
 const mode = (p) => statSync(p).mode & 0o777;
@@ -65,13 +65,16 @@ describe("ensurePrivateDir", { skip: posixOnly, ...T }, () => {
     assert.equal(mode(target), 0o755);
   });
 
-  it("does not chmod for win32 (no ACL helper here)", () => {
+  it("does not chmod for win32 (it sets an ACL instead, M-6)", () => {
     const root = makeTempDir("k6-priv-");
     const d = join(root, "w");
     mkdirSync(d);
     chmodSync(d, 0o755);
-    ensurePrivateDir(d, { platform: "win32" });
+    const ran = [];
+    const execFile = (cmd) => { ran.push(win32.basename(cmd, ".exe")); return cmd.endsWith("whoami.exe") ? '"h\\u","S-1-5-21-1-2-3-1001"' : ""; };
+    ensurePrivateDir(d, { platform: "win32", execFile });
     assert.equal(mode(d), 0o755);
+    assert.deepEqual(ran, ["whoami", "icacls"]);
   });
 });
 
