@@ -727,9 +727,11 @@ describe("hermes installer: install", () => {
     assert.equal(r.code, EXIT.OK, r.out);
     assert.deepEqual(calls(acc), freshCalls(acc, { acceptNc: true }));
     const lic = JSON.parse(r.stdout).licence;
-    assert.equal(lic.accepted.by, "sandbox-user");
+    assert.equal(lic.accepted.by, undefined);
+    assert.match(lic.accepted.byHash, /^[0-9a-f]{8}$/);
     assert.equal(lic.accepted.licence, "CC-BY-NC-4.0");
-    assert.equal(readHermesState(acc.hermesHome).licence.accepted.by, "sandbox-user");
+    assert.equal(readHermesState(acc.hermesHome).licence.accepted.by, undefined);
+    assert.equal(readHermesState(acc.hermesHome).licence.accepted.byHash, lic.accepted.byHash);
 
     // interactive: "not personal" → the commercial use class (F2), no acceptance
     const com = createHermesSandbox();

@@ -20,6 +20,7 @@
  * It never holds config values other than memory.provider, and no secret.
  */
 
+import { publicLicence } from "../redact.mjs";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
@@ -66,7 +67,7 @@ export function readHermesState(hermesHome) {
 
 export function writeHermesState(hermesHome, s) {
   const doc = { schema: HERMES_STATE_SCHEMA };
-  for (const k of FIELDS) if (s[k] !== undefined && s[k] !== null) doc[k] = s[k];
+  for (const k of FIELDS) if (s[k] !== undefined && s[k] !== null) doc[k] = k === "licence" ? publicLicence(s[k]) : s[k];
   if (s.previousProvider === null) doc.previousProvider = null;
   writeFileAtomic(hermesStatePath(hermesHome), `${JSON.stringify(doc, null, 2)}\n`);
   return doc;

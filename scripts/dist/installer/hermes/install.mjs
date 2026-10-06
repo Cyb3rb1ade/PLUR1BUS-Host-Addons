@@ -331,8 +331,8 @@ export async function runHermesInstall(ctx) {
       ncQuestion: "The default PLUR1BUS embedding models are licensed CC-BY-NC-4.0 (non-commercial use only). Accept this licence? [y/N] ",
     });
     useClass = l.useClass;
-    licence = { useClass, acceptNonCommercialLicense: l.acceptNonCommercialLicense, ...(l.accepted ? { accepted: { by: l.accepted.by, at: l.accepted.at, licence: l.accepted.licence } } : {}) };
-    report.step("licence", "ok", `use class ${useClass}${l.acceptNonCommercialLicense ? `; CC BY-NC 4.0 accepted by ${l.accepted.by} at ${l.accepted.at}` : ""}`);
+    licence = { useClass, acceptNonCommercialLicense: l.acceptNonCommercialLicense, ...(l.accepted ? { accepted: { byHash: l.accepted.byHash, at: l.accepted.at, licence: l.accepted.licence } } : {}) };
+    report.step("licence", "ok", `use class ${useClass}${l.acceptNonCommercialLicense ? `; CC BY-NC 4.0 accepted by the current OS user at ${l.accepted.at}` : ""}`);
   }
   const acceptNc = Boolean(licence?.acceptNonCommercialLicense);
   report.set("licence", licence ?? { useClass, kept: true });

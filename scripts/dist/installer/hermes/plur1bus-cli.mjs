@@ -14,6 +14,7 @@
  */
 
 import { defaultRun } from "../openclaw-cli.mjs";
+import { scrubLines, scrubText } from "../redact.mjs";
 
 export const ALLOWED_PLUR1BUS_CONFIG_KEYS = Object.freeze(["embedding.useClass"]);
 export const USE_CLASSES = Object.freeze(["general", "research", "commercial"]);
@@ -33,11 +34,11 @@ function parseDoc(text) {
   }
 }
 
-const tail = (text, n = 2) => String(text ?? "").split(/\r?\n/).map((l) => l.trim()).filter(Boolean).slice(-n).join(" | ");
+const tail = (text, n = 2) => scrubLines(String(text ?? "").split(/\r?\n/).map((l) => l.trim()).filter(Boolean).slice(-n));
 
 function errorOf(r, doc) {
   const e = doc && typeof doc === "object" ? (doc.error ?? (doc.schema === "error/1" ? doc : null)) : null;
-  const msg = e && typeof e === "object" ? [e.code, e.message ?? e.reason].filter(Boolean).join(": ") : "";
+  const msg = e && typeof e === "object" ? scrubText([e.code, e.message ?? e.reason].filter(Boolean).join(": "), { lines: 2, max: 200 }) : "";
   return `exit ${r.code}${r.timedOut ? ", deadline exceeded" : ""}${msg ? `: ${msg}` : tail(r.stderr || r.stdout) ? `: ${tail(r.stderr || r.stdout)}` : ""}`;
 }
 

@@ -15,6 +15,7 @@
  * rollback on a real OpenClaw; a rollback's own verify (`release.lenient`) is never forced.
  */
 
+import { scrubText } from "./redact.mjs";
 import { PLUGIN_ID } from "./openclaw-cli.mjs";
 
 export const SELFTEST_SCHEMA = "plur1bus.selftest/1";
@@ -57,7 +58,7 @@ export async function verifyInstall({ cli, release, source, downloadModels = fal
   const incompatible = (rt.json?.diagnostics ?? []).some((d) => d?.code === "sdk-incompatible" || /sdk-incompatible/.test(String(d?.message ?? "")));
   if (!rt.present) checks.push({ id: "loaded", ok: false, detail: `plugins inspect --runtime failed (exit ${rt.code}): ${rt.detail}` });
   else if (plugin?.status !== "loaded" || plugin?.imported !== true || incompatible) {
-    checks.push({ id: "loaded", ok: false, detail: `status ${plugin?.status}, imported ${plugin?.imported}${incompatible ? ", sdk-incompatible" : ""}${plugin?.error ? `: ${String(plugin.error).slice(0, 200)}` : ""}` });
+    checks.push({ id: "loaded", ok: false, detail: `status ${plugin?.status}, imported ${plugin?.imported}${incompatible ? ", sdk-incompatible" : ""}${plugin?.error ? `: ${scrubText(String(plugin.error), { lines: 2, max: 200 })}` : ""}` });
   } else checks.push({ id: "loaded", ok: true, detail: `loaded and imported (${source})` });
 
   const integ = checkIntegrity(rt.present ? rt.json.install : null, release);
@@ -75,7 +76,7 @@ export async function verifyInstall({ cli, release, source, downloadModels = fal
   else {
     const failedAddon = (rep.addons ?? []).find((a) => a && a.ok === false);
     const first = (rep.errors ?? [])[0] ?? (failedAddon ? `addon ${failedAddon.name} failed${failedAddon.package ? ` (${failedAddon.package})` : ""}` : `exit ${st.code}`);
-    checks.push({ id: "selftest", ok: false, detail: `selftest failed: ${String(first).slice(0, 300)}` });
+    checks.push({ id: "selftest", ok: false, detail: `selftest failed: ${scrubText(String(first), { lines: 2, max: 300 })}` });
   }
   const state = rep.model?.state;
   if (state === "present" || state === "downloaded") checks.push({ id: "model", ok: true, detail: `${rep.model.profile ?? "model"} ${state}` });

@@ -16,6 +16,7 @@
  */
 
 import { defaultRun } from "../openclaw-cli.mjs";
+import { scrubLines, scrubText } from "../redact.mjs";
 
 export const ALLOWED_HERMES_CONFIG_KEYS = Object.freeze(["memory.provider"]);
 
@@ -46,7 +47,7 @@ function lastJsonDoc(text) {
   }
 }
 
-const tail = (text, n = 2) => String(text ?? "").split(/\r?\n/).map((l) => l.trim()).filter(Boolean).slice(-n).join(" | ");
+const tail = (text, n = 2) => scrubLines(String(text ?? "").split(/\r?\n/).map((l) => l.trim()).filter(Boolean).slice(-n));
 
 /**
  * The shape of a selftest document (ruling F12): { schema, ok, checks: [{ id, ok, detail? }] }; unknown keys ignored.
@@ -56,7 +57,7 @@ export function readSelftestDoc(doc) {
   if (!doc || typeof doc !== "object" || doc.schema !== SELFTEST_SCHEMA || typeof doc.ok !== "boolean" || !Array.isArray(doc.checks)) return null;
   const checks = doc.checks
     .filter((c) => c && typeof c === "object" && typeof c.id === "string" && typeof c.ok === "boolean")
-    .map((c) => ({ id: c.id, ok: c.ok, detail: typeof c.detail === "string" ? c.detail : null }));
+    .map((c) => ({ id: c.id, ok: c.ok, detail: typeof c.detail === "string" ? scrubText(c.detail, { lines: 2, max: 200 }) : null }));
   return { ok: doc.ok && checks.every((c) => c.ok), checks };
 }
 

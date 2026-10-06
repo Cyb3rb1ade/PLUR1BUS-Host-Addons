@@ -11,6 +11,7 @@
  * values or credentials.
  */
 
+import { publicLicence } from "./redact.mjs";
 import { mkdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
@@ -43,7 +44,7 @@ export function writeState(stateDir, s) {
   const target = statePath(stateDir);
   mkdirSync(join(stateDir, "memory"), { recursive: true });
   const doc = { schema: STATE_SCHEMA, previousSlot: s.previousSlot ?? null, installedVersion: s.installedVersion ?? null, source: s.source ?? null };
-  if (s.licence) doc.licence = s.licence;
+  if (s.licence) doc.licence = publicLicence(s.licence);
   if (s.inProgress) doc.inProgress = s.inProgress;
   let artefacts = s.artefacts;
   if (artefacts === undefined) {

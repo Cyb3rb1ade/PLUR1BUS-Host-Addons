@@ -277,7 +277,8 @@ describe("install-plugin.sh", { skip: SKIP }, () => {
     assert.equal(r.code, 0, r.out);
     assert.ok(c.installer(), `installer did not run: ${r.out}`);
     assert.deepEqual(c.curlUrls(), [`file://${c.root}/mnt/d/feed/stable.json`, `file://${c.root}/mnt/d/feed/stable.json.minisig`, `file://${c.root}/mnt/d/fake-installer.mjs`]);
-    assert.match(r.stderr, /downloading file:\/\/\/D:\/fake-installer\.mjs/, "messages keep the URL as given");
+    assert.match(r.stderr, /downloading file:\/\/\/\.\.\./, "messages carry scheme and host only (K6 M-1)");
+    assert.doesNotMatch(r.stderr, /fake-installer\.mjs/);
 
     const off = makeBootstrapCase({ wslpath: true, testFlag: false, feedUrl: "file:///D:/feed/{channel}.json" });
     const r2 = off.run([]);
@@ -445,7 +446,7 @@ describe("install-plugin.sh --host hermes", { skip: SKIP }, () => {
     const c = makeHermesCase();
     const r = c.run(["--host", "hermes"], renderWithPins("f".repeat(64)));
     assert.equal(r.code, 1, r.out);
-    assert.match(r.stderr, /checksum mismatch .*node-v24\.21\.0/);
+    assert.match(r.stderr, /checksum mismatch for file:\/\/\/\.\.\. expected f{64}/);
     assert.equal(c.installer(), null);
     assert.deepEqual(c.nodeCalls(), [], "nothing ran");
     assert.equal(existsSync(c.cachedArchive), false, "a mismatching download is not cached");
