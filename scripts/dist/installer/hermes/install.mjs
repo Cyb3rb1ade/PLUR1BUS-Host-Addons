@@ -38,6 +38,7 @@ import { compareVersions } from "../../build-plugin-feed.mjs";
 import { findHarnessHomes, resolveTarget } from "../compat.mjs";
 import { writeFileAtomic } from "../fsutil.mjs";
 import { resolveLicence } from "../licence.mjs";
+import { publicLicence } from "../redact.mjs";
 import { EXIT, Stop } from "../report.mjs";
 import { fetchBytes } from "../update.mjs";
 import { sha256Hex } from "../untar.mjs";
@@ -307,7 +308,7 @@ export async function runHermesInstall(ctx) {
   let licence = null;
   if (resuming && USE_CLASSES.includes(state.useClass)) {
     useClass = state.useClass;
-    licence = state.licence ?? null;
+    licence = publicLicence(state.licence) ?? null;
     report.step("licence", "skipped", `use class ${useClass} recorded by the interrupted run`);
     if (flags["accept-nc-licence"] && !licence?.acceptNonCommercialLicense) report.note(`Note: --accept-nc-licence is not applied: the interrupted run recorded use class ${useClass} without it; roll it back (--rollback) to choose again.`);
   } else if (hostSidecar && existsSync(bin)) {

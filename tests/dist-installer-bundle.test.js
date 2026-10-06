@@ -128,7 +128,7 @@ globalThis.fetch = async (u) => {
     );
     const body = join(dir, "feed.json");
     writeFileSync(body, bytes);
-    const run = (name, signer) => {
+    const run = (name, signer, pubkeyEnv) => {
       const sig = join(dir, `${name}.minisig`);
       const log = join(dir, `${name}.log`);
       writeFileSync(sig, signer.sign(bytes));
@@ -136,6 +136,8 @@ globalThis.fetch = async (u) => {
       const env = { ...sb.env, PLUR1BUS_PLUGIN_FEED: url, STUB_LOG: log, STUB_SIG: sig, STUB_BODY: body, PLUR1BUS_PLUGIN_TEST_FREE_BYTES: String(64 * 1024 ** 3) };
       delete env.PLUR1BUS_PLUGIN_INSTALLER_TEST;
       delete env.PLUR1BUS_PLUGIN_PUBKEY;
+      // without the test flag the env key must be ignored: a feed signed by a key the caller names is still refused
+      if (pubkeyEnv) env.PLUR1BUS_PLUGIN_PUBKEY = pubkeyEnv;
       const r = spawnSync(process.execPath, ["--import", pathToFileURL(stub).href, file, "--dry-run", "--json"], { encoding: "utf8", env, timeout: 60_000 });
       return { status: r.status, out: `${r.stdout}${r.stderr}`, seen: readFileSync(log, "utf8").split("\n").filter(Boolean) };
     };
@@ -143,10 +145,10 @@ globalThis.fetch = async (u) => {
     assert.deepEqual(good.seen, [url, `${url}.minisig`], `the env URL is what is fetched, not the default feed: ${good.out}`);
     assert.doesNotMatch(good.out, /feed signature check failed|carries no feed public key/);
     assert.doesNotMatch(good.out, /MARKERFEEDTOKEN/);
-    const bad = run("bad", attacker);
+    const bad = run("bad", attacker, attacker.publicKeyLine);
     assert.deepEqual(bad.seen, [url, `${url}.minisig`]);
     assert.equal(bad.status, 1, bad.out);
-    assert.match(bad.out, /feed signature check failed/, "a feed signed by any other key is rejected");
+    assert.match(bad.out, /feed signature check failed/, "a feed signed by any other key is rejected, also when PLUR1BUS_PLUGIN_PUBKEY names that key (test flag unset)");
     assert.doesNotMatch(bad.out, /MARKERFEEDTOKEN/);
   });
 

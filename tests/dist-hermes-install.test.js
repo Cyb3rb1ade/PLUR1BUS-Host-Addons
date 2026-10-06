@@ -19,7 +19,7 @@ import { ALLOWED_HERMES_CONFIG_KEYS, createHermesCli, parseMemoryStatus, readSel
 import { checkConfigEditable, planProviderEdit, planProviderUndo, readProviderLine, setProviderLine, undoProviderLine } from "../scripts/dist/installer/hermes/config-edit.mjs";
 import { plur1busHome, sidecarBinPath } from "../scripts/dist/installer/hermes/sidecar.mjs";
 import { pep440Satisfies } from "../scripts/dist/installer/hermes/install.mjs";
-import { readHermesState } from "../scripts/dist/installer/hermes/state.mjs";
+import { hermesStatePath, readHermesState } from "../scripts/dist/installer/hermes/state.mjs";
 import { createHermesSandbox, runHermesInstaller, sha256File, TEMPLATE_CONFIG } from "./helpers/hermes-sandbox.js";
 import { checkEvents } from "./helpers/lock-events.mjs";
 import { SANDBOX_ARCH, treeDigest, walkTree } from "./helpers/installer-sandbox.js";
@@ -485,6 +485,19 @@ describe("hermes installer: install", () => {
     if (how === "shim") sb.setScenario({ killOn: null });
     return { sb, before, binBefore };
   }
+
+  it("a resumed run does not print or re-record a legacy licence record's OS user name (K6 M-2)", { skip: process.platform === "win32" && "POSIX kill of the installer process" }, async () => {
+    const { sb } = killedSandbox(KILL_POINTS.find((k) => k.point === "provider.staged"));
+    const file = hermesStatePath(sb.hermesHome);
+    const st = JSON.parse(readFileSync(file, "utf8"));
+    st.licence = { useClass: st.useClass, acceptNonCommercialLicense: true, accepted: { by: "marker-legacy-user-q9", at: "2026-01-01T00:00:00.000Z", licence: "CC-BY-NC-4.0" } };
+    writeFileSync(file, JSON.stringify(st));
+    const r = await run(sb, ["--json"]);
+    assert.equal(r.code, EXIT.OK, r.out);
+    assert.doesNotMatch(r.out, /marker-legacy-user-q9/);
+    assert.match(JSON.parse(r.stdout).licence.accepted.byHash, /^[0-9a-f]{8}$/);
+    assert.doesNotMatch(readFileSync(file, "utf8"), /marker-legacy-user-q9/);
+  });
 
   for (const kp of KILL_POINTS) {
     it(`killed at ${kp.point}: the next run finishes the install`, { skip: process.platform === "win32" && "POSIX kill of the installer process" }, async () => {
