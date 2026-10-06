@@ -37,7 +37,7 @@ import { EXIT, Stop } from "./report.mjs";
 import { writeState } from "./state.mjs";
 import { selftestForcedToFail, verifyInstall } from "./verify.mjs";
 import { keepArtefact, keptArtefact, pruneArtefacts } from "./artefacts.mjs";
-import { rmTree, writeFileAtomic } from "./fsutil.mjs";
+import { ensurePrivateDir, rmTree, writeFileAtomic } from "./fsutil.mjs";
 
 const ALLOW_CONVERSATION = `plugins.entries.${PLUGIN_ID}.hooks.allowConversationAccess`;
 
@@ -186,6 +186,8 @@ export function notesBetween(feed, installed, target, lang) {
 /** Snapshot the store before a change; a missing store is nothing to lose. */
 export async function snapshotStep({ report, stateDir, baseDbPath, label, pluginVersion, now }) {
   try {
+    // K6: the copy of the memories is private before the first byte lands in it (only when there is a store to copy)
+    if (existsSync(baseDbPath)) ensurePrivateDir(join(stateDir, "memory", ".snapshots"));
     const snap = await createSnapshot({ stateDir, baseDbPath, label, pluginVersion, now });
     report.step("snapshot", "ok", `${snap.id} (${snap.files} files, ${formatBytes(snap.bytes)}) under ${join(stateDir, "memory", ".snapshots")}`);
     for (const w of snap.warnings ?? []) report.note(`  snapshot warning: ${w}`);
