@@ -67,7 +67,7 @@ Node `>=24.16.0 <25 || >=26.1.0` (CI uses 24.21.0), Python >= 3.11 for the lock-
 
 ```bash
 npm ci
-npm test            # node --test over tests/
+npm test            # node --test over tests/, 120 s per test (--test-timeout); sync children go through tests/helpers/run-sync.js
 npm run lint        # node --check over scripts/ and tests/
 npm run build:installer
 npm run build:bootstraps

@@ -9,6 +9,11 @@ on:
   pull_request:
     branches: [main]
 
+# A newer push to the same pull request supersedes the running one; runs on main are never cancelled.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   lint:
     runs-on: ubuntu-24.04
@@ -33,7 +38,7 @@ jobs:
   test:
     name: test (${{ matrix.os }}, node 24.21.0)
     runs-on: ${{ matrix.os }}
-    timeout-minutes: ${{ startsWith(matrix.os, 'windows') && 60 || 45 }}
+    timeout-minutes: ${{ startsWith(matrix.os, 'windows') && 40 || (startsWith(matrix.os, 'macos') && 15 || 10) }}
     strategy:
       fail-fast: false
       matrix:
@@ -128,7 +133,7 @@ jobs:
         env:
           PLUR1BUS_REQUIRE_PS51: '1'
         run: |
-          $out = node --test --test-reporter=tap '--test-name-pattern=wsl:<d> pipes the verified sh' tests/dist-bootstrap-ps1.test.js 2>&1 | Out-String
+          $out = node --test --test-timeout=120000 --test-reporter=tap '--test-name-pattern=wsl:<d> pipes the verified sh' tests/dist-bootstrap-ps1.test.js 2>&1 | Out-String
           $code = $LASTEXITCODE
           Write-Output $out
           if ($code -ne 0) { exit $code }

@@ -10,7 +10,7 @@
 
 import { describe, it, before } from "node:test";
 import assert from "node:assert/strict";
-import { spawnSync } from "node:child_process";
+import { spawnSyncBounded as spawnSync } from "./helpers/run-sync.js";
 import { createHash } from "node:crypto";
 import { copyFileSync, existsSync, linkSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
@@ -303,14 +303,22 @@ function makePsCase(o) {
     localAppData: sb.env.LOCALAPPDATA,
     run(args = [], { raw = false, script = ps1Script } = {}) {
       const started = Date.now();
-      const r = spawnSync(o.shell.exe, ["-NoLogo", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", script, ...args], {
-        env,
-        encoding: raw ? "buffer" : "utf8",
-        stdio: ["pipe", "pipe", "pipe"],
-        input: "",
-        timeout: psRunTimeoutMs(o.shell),
-      });
-      // A killed run has status null and often no output at all: say so, with how far the wsl.exe shim got.
+      let r;
+      try {
+        r = spawnSync(o.shell.exe, ["-NoLogo", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", script, ...args], {
+          env,
+          encoding: raw ? "buffer" : "utf8",
+          stdio: ["pipe", "pipe", "pipe"],
+          input: "",
+          timeout: psRunTimeoutMs(o.shell),
+        });
+      } catch (e) {
+        // run-sync.js killed the run (SIGKILL) at its limit: fail loudly, with how far the wsl.exe shim got.
+        if (e?.code !== "ETIMEDOUT") throw e;
+        const calls = readFileSync(wslLog, "utf8").split("\n").filter(Boolean).length;
+        throw new Error(`${o.shell.name} run of the .ps1 timed out after ${Date.now() - started} ms (limit ${psRunTimeoutMs(o.shell)} ms); wsl.exe calls so far: ${calls}\n${e.message}`, { cause: e });
+      }
+      // A run that could not start (not a timeout) has status null: say so.
       const spawnNote = r.error
         ? `\n[spawn ${r.error.code ?? r.error.message} after ${Date.now() - started} ms (limit ${psRunTimeoutMs(o.shell)} ms); wsl.exe calls so far: ${readFileSync(wslLog, "utf8").split("\n").filter(Boolean).length}]`
         : "";

@@ -2,7 +2,7 @@
 
 import { describe, it, before } from "node:test";
 import assert from "node:assert/strict";
-import { spawnSync } from "node:child_process";
+import { spawnSyncBounded as spawnSync } from "./helpers/run-sync.js";
 import { copyFileSync, readFileSync, writeFileSync } from "node:fs";
 import { pathToFileURL } from "node:url";
 import { dirname, join } from "node:path";
