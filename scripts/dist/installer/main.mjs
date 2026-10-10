@@ -76,8 +76,10 @@ memory provider and its local sidecar into Hermes (--host hermes).
   --feed <url>               signed plugin feed (default ${DEFAULT_FEED_URL}); visible in the process list:
                              put a mirror URL that carries a token in PLUR1BUS_PLUGIN_FEED instead
   --feed-file <path>         feed already verified by the bootstrap
+  --model <name>             local embedding model: gemma2 (EmbeddingGemma 2, recommended, Apache-2.0),
+                             e5 (Multilingual E5 Small, MIT), or jina (Jina v5 Nano, CC BY-NC 4.0)
   --accept-nc-licence        accept CC BY-NC 4.0 for Jina v5 Text Nano (also PLUR1BUS_ACCEPT_NONCOMMERCIAL_LICENSE=1)
-  --non-interactive          never prompt (licence defaults to E5-small)
+  --non-interactive          never prompt (licence defaults to E5-small unless --model is given)
   --download-models          let the selftest download the embedding model
   --update                   update a tracked install (store snapshot first, automatic rollback)
   --uninstall [--purge]      uninstall; --purge also deletes the store, the snapshots and the
@@ -112,6 +114,8 @@ const OPTIONS = {
   offline: { type: "string" },
   feed: { type: "string" },
   "feed-file": { type: "string" },
+  model: { type: "string" },
+  "embedding-model": { type: "string" },
   "accept-nc-licence": { type: "boolean", default: false },
   "non-interactive": { type: "boolean", default: false },
   "download-models": { type: "boolean", default: false },
@@ -136,7 +140,7 @@ const OPTIONS = {
 };
 
 const HERMES_ONLY = ["hermes-profile", "hermes-home", "replace-provider"];
-const OPENCLAW_ONLY = ["source", "offline", "state-dir", "profile", "download-models", "adopt-legacy"];
+const OPENCLAW_ONLY = ["source", "offline", "state-dir", "profile", "download-models", "adopt-legacy", "model", "embedding-model"];
 
 const sha256 = (buf) => createHash("sha256").update(buf).digest("hex");
 
@@ -491,8 +495,18 @@ async function install(ctx) {
   if (embeddingProvider.set) {
     report.step("licence", "skipped", `existing embedding choice (${embeddingProvider.value}) kept`);
     report.set("licence", { skipped: "existing-embedding-choice" });
+    if (values.model || values["embedding-model"]) {
+      report.note("Notice: existing embedding choice is preserved; switching embedding model requires deliberate operator migration and re-embedding (~350 MB for q8).");
+    }
   } else {
-    licence = await resolveLicence({ interactive: isTTY && !values["non-interactive"], acceptNc: values["accept-nc-licence"], env, prompt, now });
+    licence = await resolveLicence({
+      interactive: isTTY && !values["non-interactive"],
+      acceptNc: values["accept-nc-licence"],
+      model: values.model ?? values["embedding-model"],
+      env,
+      prompt,
+      now,
+    });
     report.set("licence", licence);
   }
 

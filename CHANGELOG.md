@@ -18,6 +18,16 @@ Installer installiert. Die Einträge von 0.1.0 stammen aus dem Abschnitt `[7.19.
 
 ### Hinzugefügt
 
+- **Unterstützung für OpenClaw-Embedding-Adapter `plur1bus-embeddinggemma-2`**:
+  Aufnahme von `plur1bus-embeddinggemma-2` in die Liste erlaubter Adapter (`ALLOWED_OPENCLAW_EMBEDDING_ADAPTERS`)
+  sowie in die Manifest-/Vertragsprüfungen. Mindest-Plugin-Versionsprüfung über Konstante
+  `MIN_PLUGIN_VERSION_EMBEDDINGGEMMA2` (Platzhalter für das nächste Plugin-Release nach PR #250), die
+  bei älteren Versionen informativ `"requires plugin with EmbeddingGemma 2 support"` meldet statt
+  hart abzubrechen.
+- **EmbeddingGemma 2 als empfohlene lokale Modelloption**:
+  Profile `embeddinggemma-2-768` (`google/embeddinggemma-2`, 768d, Apache-2.0, ~350 MB für q8)
+  als einheitlicher lokaler Standard über `--model gemma2` wählbar; E5 und Jina (mit NC-Hinweis)
+  bleiben weiterhin wählbar. Bestehende Installationen bleiben unverändert.
 - **`--host hermes`** für den Installer und beide Bootstraps (`-Host hermes`
   in der `.ps1`): installiert den PLUR1BUS-Memory-Provider nach
   `$HERMES_HOME/plugins/plur1bus/` und einen lokalen PLUR1BUS-Sidecar

@@ -219,8 +219,9 @@ Gateway, OpenClaw applies the install live.
 | `--offline <tgz>` | Install a local tarball after its SHA-256 matched the feed. |
 | `--feed <url>` | Signed plugin feed. Default `https://updates.plur1bus.app/plugin/stable.json`. Works only when you run the installer bundle directly; the bootstraps always pass `--feed-file`, so through the one-liner use `PLUR1BUS_PLUGIN_FEED`. |
 | `--feed-file <path>` | A feed the bootstrap already verified. Exclusive with `--feed`. |
+| `--model <name>` | Local embedding model: `gemma2` (EmbeddingGemma 2, recommended, Apache-2.0), `e5` (Multilingual E5 Small, MIT), or `jina` (Jina v5 Nano, CC BY-NC 4.0). |
 | `--accept-nc-licence` | Accept CC BY-NC 4.0 for Jina v5 Text Nano ([licence gate](#the-licence-gate)). |
-| `--non-interactive` | Never prompt; the licence defaults to E5-small. |
+| `--non-interactive` | Never prompt; the licence defaults to E5-small unless `--model` is given. |
 | `--download-models` | Let the selftest download the embedding model. |
 | `--update` | Update a tracked install (snapshot first, automatic rollback). |
 | `--uninstall [--purge]` | Uninstall; `--purge` also deletes the store, the snapshots and the model cache. |
@@ -464,22 +465,18 @@ systemd timers by hand too):
    go back to the rsync deploy for good. Delete `.plur1bus-legacy-<timestamp>` yourself once the adopted plugin runs
    well; `plur1bus-release` is no longer needed by the plugin.
 
-## The licence gate
+## The licence gate and embedding model selection
 
-The recommended local model, Jina v5 Text Nano, is licensed CC BY-NC 4.0
-(non-commercial). It is never accepted silently.
+The recommended local embedding model is **EmbeddingGemma 2** (`google/embeddinggemma-2`, profile `embeddinggemma-2-768`, 768 dimensions natively with Matryoshka support, Apache-2.0, ~350 MB download for q8). Because EmbeddingGemma 2 is licensed Apache-2.0, commercial and personal use are permitted without non-commercial restrictions.
 
-- Interactive: "Is this installation for personal, non-commercial use?" A yes
-  leads to an explicit "Accept this licence?"; anything else gives E5-small
-  (MIT, `e5-multilingual-384`).
-- Non-interactive (`--non-interactive`, no terminal): E5-small, unless
-  `--accept-nc-licence` or `PLUR1BUS_ACCEPT_NONCOMMERCIAL_LICENSE=1` is given.
-- An acceptance is recorded in the installer state and the report with who (a
-  short SHA-256 hash of the OS user name, `byHash`, never the name), when,
-  model, revision and licence.
-- An existing embedding choice wins: the gate is skipped and nothing is
-  written. An install without an acceptance writes
-  `acceptNonCommercialLicense: false` explicitly.
+Multilingual E5 Small (`intfloat/multilingual-e5-small`, profile `e5-multilingual-384`, MIT) and Jina v5 Text Nano (`jinaai/jina-embeddings-v5-text-nano-retrieval`, profile `jina-v5-nano-768`, CC BY-NC 4.0) remain selectable. Jina v5 is never accepted silently:
+
+- Interactive: offers EmbeddingGemma 2 as the recommended choice, along with E5-small and Jina v5. Selecting Jina prompts for explicit CC BY-NC 4.0 acceptance.
+- Explicit selection: `--model gemma2` (or `embeddinggemma-2`), `--model e5`, or `--model jina` (with `--accept-nc-licence`).
+- Non-interactive (`--non-interactive`, no terminal): defaults to E5-small unless `--model` or `--accept-nc-licence` is provided.
+- An acceptance is recorded in the installer state and the report with who (a short SHA-256 hash of the OS user name, `byHash`, never the name), when, model, revision and licence.
+- An existing embedding choice wins: existing installations are preserved as-is and never converted automatically; a manual switch requires deliberate operator migration and re-embedding (~350 MB download for q8).
+- Allowed OpenClaw embedding adapter IDs: `plur1bus-embeddinggemma-2`, `plur1bus-openai`, `plur1bus-openai-compatible`, `plur1bus-e5-small`.
 
 ## The selftest
 
