@@ -34,6 +34,13 @@ curl -fsSL https://plur1bus.app/install-plugin.sh | sh -s -- --host hermes
 On Windows append `-Host hermes` to the PowerShell one-liner. Every flag, exit code and the feed are in
 [docs/distribution.md](docs/distribution.md).
 
+### Local Embedding Models & Adapters
+
+- **EmbeddingGemma 2** (`google/embeddinggemma-2`, profile `embeddinggemma-2-768`, 768d, Apache-2.0, ~350 MB q8): recommended local standard (selectable via `--model gemma2`).
+- **E5 Small** (`intfloat/multilingual-e5-small`, profile `e5-multilingual-384`, 384d, MIT) and **Jina v5 Text Nano** (`jinaai/jina-embeddings-v5-text-nano-retrieval`, profile `jina-v5-nano-768`, 768d, CC BY-NC 4.0 via `--accept-nc-licence`) remain selectable.
+- **Allowed OpenClaw Embedding Adapters**: `plur1bus-embeddinggemma-2`, `plur1bus-openai`, `plur1bus-openai-compatible`, `plur1bus-e5-small`.
+- Existing installations are preserved as-is; switching requires deliberate re-embedding (~350 MB download for q8).
+
 ## Relation to the other repositories
 
 | Repository | Role |

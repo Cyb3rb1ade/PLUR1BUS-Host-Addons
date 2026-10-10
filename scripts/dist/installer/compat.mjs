@@ -21,6 +21,55 @@ export const REQUIRED_FREE_BYTES = 1536 * 1024 * 1024;
 export const SUPPORTED_TARGETS = Object.freeze(["linux-x64", "linux-arm64", "darwin-arm64", "win-x64", "win-arm64"]);
 const MIN_GLIBC = "2.27";
 
+/** Allowed OpenClaw embedding adapter IDs registered by PLUR1BUS memory plugin. */
+export const ALLOWED_OPENCLAW_EMBEDDING_ADAPTERS = Object.freeze([
+  "plur1bus-embeddinggemma-2",
+  "plur1bus-openai",
+  "plur1bus-openai-compatible",
+  "plur1bus-e5-small",
+]);
+
+// Minimum plugin version supporting plur1bus-embeddinggemma-2.
+// set at next plugin release
+export const MIN_PLUGIN_VERSION_EMBEDDINGGEMMA2 = "7.19.0";
+
+/**
+ * Validate an OpenClaw embedding adapter ID and check plugin version compatibility.
+ * @param {string} adapterId
+ * @param {string|null} [pluginVersion]
+ * @returns {{ ok: boolean, fatal: boolean, warn?: boolean, id?: string, detail: string }}
+ */
+export function checkEmbeddingAdapterCompat(adapterId, pluginVersion = null) {
+  if (!ALLOWED_OPENCLAW_EMBEDDING_ADAPTERS.includes(adapterId)) {
+    return {
+      ok: false,
+      fatal: true,
+      id: "unknown-embedding-adapter",
+      detail: `unknown embedding adapter "${adapterId}"; allowed: ${ALLOWED_OPENCLAW_EMBEDDING_ADAPTERS.join(", ")}`,
+    };
+  }
+  if (adapterId === "plur1bus-embeddinggemma-2") {
+    if (pluginVersion) {
+      let isOlder = false;
+      try {
+        isOlder = compareVersions(pluginVersion, MIN_PLUGIN_VERSION_EMBEDDINGGEMMA2) < 0;
+      } catch {
+        isOlder = false;
+      }
+      if (isOlder) {
+        return {
+          ok: true,
+          fatal: false,
+          warn: true,
+          id: "plugin-embeddinggemma2-unsupported",
+          detail: "requires plugin with EmbeddingGemma 2 support",
+        };
+      }
+    }
+  }
+  return { ok: true, fatal: false, detail: adapterId };
+}
+
 export const READONLY_REMEDY = Object.freeze({
   OPENCLAW_CONFIG_READONLY:
     "Config is externally managed (OPENCLAW_CONFIG_READONLY=1), so OpenClaw treats openclaw.json as immutable. Edit the config in your external deployment source, then redeploy or restart OpenClaw as needed.",
@@ -191,11 +240,11 @@ export function inside(child, parent, platform) {
 
 /**
  * @param {{ openclawVersion: string|null, nodeVersion: string|null, target: {target: string, supported: boolean, detail: string},
- *   release: { compat: { minGatewayVersion: string }, node: string }, freeBytes: number|null, readonlyConfig: null|"OPENCLAW_CONFIG_READONLY"|"OPENCLAW_NIX_MODE",
- *   configValid: boolean, baseDbPath: string, harnessHomes?: string[], harnessHome?: string|null, platform?: string }} a
- * @returns {Array<{ id: string, fatal: boolean, detail: string }>}
+ *   release: { version?: string, compat: { minGatewayVersion: string }, node: string }, freeBytes: number|null, readonlyConfig: null|"OPENCLAW_CONFIG_READONLY"|"OPENCLAW_NIX_MODE",
+ *   configValid: boolean, baseDbPath: string, harnessHomes?: string[], harnessHome?: string|null, embeddingAdapter?: string|null, platform?: string }} a
+ * @returns {Array<{ id: string, fatal: boolean, warn?: boolean, detail: string }>}
  */
-export function checkCompat({ openclawVersion, nodeVersion, target, release, freeBytes, readonlyConfig, configValid, baseDbPath, harnessHomes, harnessHome, platform = process.platform }) {
+export function checkCompat({ openclawVersion, nodeVersion, target, release, freeBytes, readonlyConfig, configValid, baseDbPath, harnessHomes, harnessHome, embeddingAdapter, platform = process.platform }) {
   const homes = [...(harnessHomes ?? []), ...(harnessHome ? [harnessHome] : [])];
   const findings = [];
   if (!target.supported) findings.push({ id: "unsupported-target", fatal: true, detail: target.detail });
@@ -223,6 +272,14 @@ export function checkCompat({ openclawVersion, nodeVersion, target, release, fre
   if (home) {
     const harnessHome = home;
     findings.push({ id: "store-inside-harness-home", fatal: true, detail: `baseDbPath ${baseDbPath} lies inside the PLUR1BUS harness home ${harnessHome}; one engine per store (D89)` });
+  }
+  if (embeddingAdapter) {
+    const adapterRes = checkEmbeddingAdapterCompat(embeddingAdapter, release?.version ?? null);
+    if (!adapterRes.ok) {
+      findings.push({ id: adapterRes.id, fatal: adapterRes.fatal, detail: adapterRes.detail });
+    } else if (adapterRes.warn) {
+      findings.push({ id: adapterRes.id, fatal: false, warn: true, detail: adapterRes.detail });
+    }
   }
   return findings;
 }

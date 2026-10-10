@@ -34,6 +34,7 @@
     "cliBackendIds": [],
     "providerIds": [],
     "embeddingProviderIds": [
+      "plur1bus-embeddinggemma-2",
       "plur1bus-openai",
       "plur1bus-openai-compatible",
       "plur1bus-e5-small"
@@ -62,6 +63,7 @@
     "configJsonSchema": "<trimmed: plugin manifest configSchema, not OpenClaw behaviour>",
     "contracts": {
       "embeddingProviders": [
+        "plur1bus-embeddinggemma-2",
         "plur1bus-openai",
         "plur1bus-openai-compatible",
         "plur1bus-e5-small"
@@ -132,6 +134,7 @@
     {
       "kind": "embedding",
       "ids": [
+        "plur1bus-embeddinggemma-2",
         "plur1bus-openai",
         "plur1bus-openai-compatible",
         "plur1bus-e5-small"
@@ -187,6 +190,7 @@
       ],
       "contracts": [
         "embeddingProviders: plur1bus-e5-small",
+        "embeddingProviders: plur1bus-embeddinggemma-2",
         "embeddingProviders: plur1bus-openai",
         "embeddingProviders: plur1bus-openai-compatible",
         "tools: knowledge_update",
